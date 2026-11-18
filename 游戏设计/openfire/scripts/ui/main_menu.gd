@@ -546,7 +546,7 @@ func _open_legacy_menu() -> void:
 func _confirm_quit() -> void:
 	var dialog := ConfirmationDialog.new()
 	dialog.title = "退出游戏"
-	dialog.dialog_text = "确定退出《上课》？"
+	dialog.dialog_text = "确定退出《一中东·余铃》？"
 	dialog.ok_button_text = "退出"
 	dialog.cancel_button_text = "取消"
 	dialog.confirmed.connect(_quit_menu)

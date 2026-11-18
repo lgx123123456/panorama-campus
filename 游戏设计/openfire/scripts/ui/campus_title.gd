@@ -59,14 +59,14 @@ func _ready() -> void:
 	add_child(area)
 	var layout := VBoxContainer.new()
 	area.add_child(layout)
-	var chapter := _label("一中东校区  /  校园还原", 17, AMBER)
+	var chapter := _label("石家庄一中东校区", 17, AMBER)
 	layout.add_child(chapter)
 	var center := CenterContainer.new()
 	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	center.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	layout.add_child(center)
 	main_actions = _column(center)
-	main_actions.add_child(_label("上课", 104, PAPER))
+	main_actions.add_child(_label("余铃", 104, PAPER))
 	main_actions.add_child(_label("上楼顶取枪，经操场补给，突围前往尚德广场。", 21, MUTED))
 	var gap := Control.new()
 	gap.custom_minimum_size.y = 19
@@ -197,7 +197,7 @@ func _button(parent: Container, copy: String, primary := false) -> Button:
 func _show_credits() -> void:
 	var dialog := AcceptDialog.new()
 	dialog.title = "制作人员与开源鸣谢"
-	dialog.dialog_text = "《上课》 · 校园重建与游戏制作\n\n基于 OpenFire（MIT）与 Godot Engine（MIT）。\n感谢 Kenney、Quaternius 以及联机组件的开发者。\n开源许可与署名随游戏提供。"
+	dialog.dialog_text = "《一中东·余铃》 · 校园重建与游戏制作\n\n基于 OpenFire（MIT）与 Godot Engine（MIT）。\n感谢 Kenney、Quaternius 以及联机组件的开发者。\n开源许可与署名随游戏提供。"
 	dialog.ok_button_text = "返回"
 	dialog.add_button("查看开源许可", true).pressed.connect(_show_licenses)
 	dialog.confirmed.connect(dialog.queue_free)

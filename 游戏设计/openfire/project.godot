@@ -5,11 +5,11 @@ config_version=5
 
 [application]
 
-config/name="上课"
+config/name="一中东·余铃"
 config/use_custom_user_dir=true
 config/custom_user_dir_name="app_userdata/OpenFire"
 config/description="从致远楼教室出发的校园逃生游戏。"
-config/version="0.2.35"
+config/version="0.2.36"
 run/main_scene="res://scenes/main_menu.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://assets/ui/campus_library_icon.png"

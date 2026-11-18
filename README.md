@@ -1,10 +1,10 @@
-# 全景校园 · 上课
+# 一中东·余铃
 
-项目用 Blender 还原石家庄一中东校区，再把校园模型导入 Godot，制作可步行探索的《上课》。校园平面与外观依据航拍和 45 个全景站点校对，建模范围包括校门、广场、教学楼及连廊、图书馆、体育区和公寓楼。
+《一中东·余铃》以石家庄一中东校区为原型，用 Blender 还原校园，再导入 Godot 制作可步行探索的三维场景。校园平面与外观依据航拍和 45 个全景站点校对，建模范围包括校门、广场、教学楼及连廊、图书馆、体育区和公寓楼。
 
 ## 下载游玩
 
-在 [GitHub Releases](https://github.com/lgx123123456/panorama-campus/releases/tag/v0.2.35) 下载 `Shangke-Setup-v0.2.35.exe`。安装包适用于 Windows 10/11 x64，安装后从开始菜单打开「上课」。主菜单可选择「自由探索」「丧尸模式」和「多人联机」。
+在 [GitHub Releases](https://github.com/lgx123123456/panorama-campus/releases/tag/v0.2.36) 下载 `Yuling-Setup-v0.2.36.exe`。安装包适用于 Windows 10/11 x64，安装后从开始菜单打开「一中东·余铃」。主菜单可选择「自由探索」「丧尸模式」和「多人联机」。
 
 ## 从源码运行
 
@@ -18,7 +18,7 @@ git lfs pull
 godot --editor --path "游戏设计/openfire"
 ```
 
-Windows 玩家版使用 Godot 的 `Windows Player` 导出预设，需要同版本的导出模板。把导出程序命名为 `上课.exe`，保留同目录的运行库，再用 Inno Setup 编译[安装脚本](游戏设计/openfire/tools/windows_installer.iss)。脚本接收 `ReleaseDir`、`ReleaseVersion` 和 `OutputPath` 三个参数。
+Windows 玩家版使用 Godot 的 `Windows Player` 导出预设，需要同版本的导出模板。把导出程序命名为 `余铃.exe`，保留同目录的运行库，再用 Inno Setup 编译[安装脚本](游戏设计/openfire/tools/windows_installer.iss)。脚本接收 `ReleaseDir`、`ReleaseVersion` 和 `OutputPath` 三个参数。
 
 ## 项目结构
 

@@ -10,7 +10,7 @@
 
 [Setup]
 AppId={{E19A1DC9-A782-42FB-AE84-684429B61722}
-AppName=上课
+AppName=一中东·余铃
 AppVersion={#ReleaseVersion}
 AppPublisher=OpenFire 校园还原项目
 DefaultDirName={localappdata}\Programs\OpenFireCampus
@@ -21,10 +21,10 @@ MinVersion=10.0
 DisableDirPage=no
 AppendDefaultDirName=no
 DisableProgramGroupPage=yes
-UninstallDisplayIcon={app}\上课.exe
+UninstallDisplayIcon={app}\余铃.exe
 SetupIconFile=..\assets\ui\campus_library_icon.ico
 OutputDir={#OutputPath}
-OutputBaseFilename=上课-安装包-v{#ReleaseVersion}
+OutputBaseFilename=Yuling-Setup-v{#ReleaseVersion}
 WizardStyle=modern
 Compression=lzma2/normal
 SolidCompression=yes
@@ -43,18 +43,18 @@ zhcn.DesktopShortcutOption=创建桌面快捷方式
 Name: desktopicon; Description: "{cm:DesktopShortcutOption}"; Flags: unchecked
 
 [Files]
-Source: "{#ReleaseDir}\上课.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#ReleaseDir}\余铃.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ReleaseDir}\EOSSDK-Win64-Shipping.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ReleaseDir}\godot_iroh.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ReleaseDir}\libeosg.windows.template_release.x86_64.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ReleaseDir}\xaudio2_9redist.dll"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{userprograms}\上课"; Filename: "{app}\上课.exe"; WorkingDir: "{app}"
-Name: "{userdesktop}\上课"; Filename: "{app}\上课.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{userprograms}\一中东·余铃"; Filename: "{app}\余铃.exe"; WorkingDir: "{app}"
+Name: "{userdesktop}\一中东·余铃"; Filename: "{app}\余铃.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\上课.exe"; Description: "启动《上课》"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\余铃.exe"; Description: "启动《一中东·余铃》"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var
