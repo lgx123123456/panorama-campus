@@ -1,0 +1,35 @@
+# Local reference media and reconstruction outputs
+/AGENTS.md
+/数据/01_全景原始/
+/数据/02_元数据/
+/数据/03_附属资源/
+/数据/04_建模参考/
+/数据/manifest.json
+/地图素材/
+/校门还原小样/
+/还原/成果/
+/游戏设计/人物样件/
+/下课之前_玩法方案.docx
+
+# Local Godot tooling, caches and packaged builds
+/游戏设计/openfire/.claude/
+/游戏设计/openfire/.github/
+/游戏设计/openfire/.godot/
+/游戏设计/openfire/.tools/
+/游戏设计/openfire/build/
+*.pck
+*.exe
+
+# Local credentials and generated files
+.env
+.env.*
+!.env.example
+campus-eos.cfg
+export_credentials.cfg
+__pycache__/
+*.py[cod]
+*.blend1
+*.log
+*.[Tt][Mm][Pp]
+Thumbs.db
+.DS_Store

@@ -1,0 +1,17 @@
+{
+  "weapons": {
+    "repository": "https://github.com/bukkbeek/GodotFPS-Template",
+    "commit": "11619794d644e7933f87caa6099f3acc1f085f5d",
+    "file": "resources/player/fps_demo_arms.glb",
+    "license": "项目LICENSE标示MIT；README另附素材禁止转售声明，原文见UPSTREAM-ASSET-NOTICE.txt",
+    "use": "原始枪械网格、骨骼、开火和换弹动画；本地选择可见部件、材质和持枪姿态。"
+  },
+  "movement": {
+    "repository": "https://github.com/expressobits/character-controller",
+    "commit": "ec8c43c3c46a610cdc9b4f96404e9149e7ff4100",
+    "reference": "abilities/walk_ability_3d.gd and abilities/crouch_ability_3d.gd",
+    "license": "MIT",
+    "use": "参考水平惯性、空中控制和渐变蹲起，适配校园胶囊和楼梯。"
+  },
+  "audio": "沿用OpenFire现有Kenney CC0音效"
+}

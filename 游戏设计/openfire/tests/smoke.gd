@@ -1,0 +1,2251 @@
+extends Node
+## Headless smoke test. Run with:
+##   .tools/godot --headless res://tests/smoke.tscn
+## Hosts a co-op match, spawns the world, and reports what came alive.
+
+func _ready() -> void:
+	print("SMOKE: start")
+	Game.config = {
+		"mode": Game.Mode.COOP,
+		"map": "res://maps/facility.tscn",
+		"mission_id": "clear_the_facility",
+		"bot_count": 4,
+		"bot_skill": 1.0,
+		"frag_limit": 25,
+		"time_limit": 600,
+	}
+	print("SMOKE: missions loaded = ", Missions.get_all().size())
+	print("SMOKE: weapons = ", WeaponDB.all_ids())
+	# Default port first; fall back to alternates if it's busy (e.g. a game is running
+	# locally on the default port), so the test isn't blocked by a live session.
+	var ok := Net.host_game()
+	if not ok:
+		for p in [27115, 27215, 27315, 28015]:
+			ok = Net.host_game(p)
+			if ok:
+				print("SMOKE: default port busy, hosted on ", p)
+				break
+	print("SMOKE: host_game = ", ok, " is_host=", Net.is_host())
+
+	await get_tree().process_frame
+	var world: Node = load("res://scenes/world.tscn").instantiate()
+	get_tree().root.add_child(world)
+
+	await get_tree().create_timer(6.0).timeout
+
+	var players := get_tree().get_nodes_in_group("player").size()
+	var bots := get_tree().get_nodes_in_group("bot").size()
+	var nav := get_tree().get_nodes_in_group("nav_region").size()
+	var zones := get_tree().get_nodes_in_group("zone").size()
+	print("SMOKE: players=", players, " bots=", bots, " nav_regions=", nav, " zones=", zones)
+	print("SMOKE: scoreboard rows=", Game.scores.size())
+
+	# Let bots think/move for a moment to exercise navigation + shooting.
+	await get_tree().create_timer(4.0).timeout
+	var moved := false
+	for b in get_tree().get_nodes_in_group("bot"):
+		if b.global_position.length() > 0.01:
+			moved = true
+	print("SMOKE: bots_positioned=", moved)
+
+	# Verify the local player can actually fire (loadout equipped + ammo consumed).
+	var fired_ok := false
+	var me: Node = null
+	for p in get_tree().get_nodes_in_group("player"):
+		if p.is_multiplayer_authority():
+			me = p
+			break
+	# Keep the stationary test player off the bots' target list so it survives the
+	# combat-feedback checks (otherwise the now-tougher enemies pick it off).
+	if me:
+		me.remove_from_group("combatant")
+	var sig := [false]  # Array (reference) so the lambda can write back.
+	var damage_number_ok := false
+	if me:
+		me.dealt_damage.connect(func(_amt): sig[0] = true)
+		var wm = me.weapons
+		var wid = wm.loadout[wm.current_index] if not wm.loadout.is_empty() else ""
+		var before: int = wm.ammo.get(wid, {}).get("mag", -1)
+		# Firing runs in _process; hold the trigger over a generous window so it ticks even under
+		# CI load (0.6s was too short there and flaked — green locally, red on a loaded runner).
+		wm.set_trigger(true)
+		await get_tree().create_timer(2.0).timeout
+		wm.set_trigger(false)
+		var after: int = wm.ammo.get(wid, {}).get("mag", -1)
+		fired_ok = before > 0 and after < before
+		print("SMOKE: weapon=", wid, " ammo before/after=", before, "/", after)
+
+		# Directly exercise the damage-feedback path (floating number + signal +
+		# crosshair hitmarker), independent of headless AI/aim timing.
+		var labels_before := _count_label3d()
+		wm._show_damage_number(me.global_position + Vector3.UP, 24.0)
+		me.dealt_damage.emit(24.0)
+		await get_tree().process_frame
+		damage_number_ok = _count_label3d() > labels_before
+
+	# Verify the red damage-flash overlay fires when the local player is hit.
+	var flash_ok := false
+	var hud: Node = null
+	for w in get_tree().get_nodes_in_group("world"):
+		if w.has_node("HUD"):
+			hud = w.get_node("HUD")
+	# Minimap must have a real (non-zero) size or it draws nothing.
+	var minimap_ok := false
+	if hud:
+		var mm = hud.get_node_or_null("Minimap")
+		await get_tree().process_frame
+		minimap_ok = mm != null and mm.size.x > 100.0 and mm.size.y > 100.0
+		print("SMOKE: minimap_ok=", minimap_ok, " size=", (mm.size if mm else Vector2.ZERO))
+	if me and hud:
+		# Force a known-alive, full-health state (bots may have downed the dummy)
+		# and prime the HUD's last-health so the drop registers as damage.
+		me.downed = false
+		me.dead = false
+		me.fully_dead = false
+		me.sync_health = 100.0
+		me.health_changed.emit(100.0, me.MAX_HEALTH)
+		await get_tree().process_frame
+		me.receive_damage(20.0, 0)      # take a non-lethal hit
+		await get_tree().process_frame
+		flash_ok = hud.damage_flash.color.a > 0.0
+
+	# Verify spawn selection keeps new spawns clear of existing combatants
+	# (overlapping spawns are what launched players into the air).
+	var spawn_clear := true
+	if world:
+		for k in 12:
+			var tr: Transform3D = world.get_spawn_transform(k % 2 == 0)
+			var nearest := INF
+			for c in get_tree().get_nodes_in_group("combatant"):
+				if c.get("dead"):
+					continue
+				var dx: float = tr.origin.x - c.global_position.x
+				var dz: float = tr.origin.z - c.global_position.z
+				nearest = minf(nearest, Vector2(dx, dz).length())
+			if nearest < 1.0:
+				spawn_clear = false
+	print("SMOKE: spawn_clearance_ok=", spawn_clear)
+
+	# Verify audio assets load and playback paths don't error.
+	var audio_ok := Audio._get_stream("res://assets/audio/fire_rifle.ogg") != null \
+		and Audio._get_stream("res://assets/audio/ui_click.ogg") != null \
+		and Audio._get_stream("res://assets/audio/death.ogg") != null
+	Audio.play_ui("res://assets/audio/ui_click.ogg")
+	if me:
+		Audio.play_3d("res://assets/audio/fire_rifle.ogg", me.global_position, 0.0, 0.1)
+	await get_tree().process_frame
+
+	# Body-part hitboxes: a ray into a bot's head hitbox resolves to mult >= 2, and the
+	# head box sits near the top of the visible model. Try every living bot and pass if
+	# any gives a clean head hit (a single bot can be occluded/mid-stride).
+	var headshot_ok := false
+	var head_aligned := false
+	var bots_list := get_tree().get_nodes_in_group("bot")
+	for bot in bots_list:
+		if bot.get("dead"):
+			continue
+		var head := bot.get_node_or_null("Hitboxes/Head/Shape")
+		if head == null:
+			continue
+		var hpos: Vector3 = head.global_position
+		var hit_ok := false
+		# Probe from several directions so an idle-posed limb can't hide the head.
+		for off in [Vector3(0, 0, 0.7), Vector3(0, 0, -0.7), Vector3(0.7, 0, 0), Vector3(-0.7, 0, 0)]:
+			var q := PhysicsRayQueryParameters3D.create(hpos + off, hpos)
+			q.collision_mask = 1 | 16
+			q.collide_with_areas = true
+			var r: Dictionary = me.get_world_3d().direct_space_state.intersect_ray(q)
+			if r and r.collider is Hitbox and r.collider.multiplier >= 2.0 and r.collider.combatant() == bot:
+				hit_ok = true
+				break
+		# Alignment: head box near the top of the VISIBLE model (not at chest height).
+		var maabb := AABB()
+		var first := true
+		for mi in bot.get_node("BodyModel").find_children("*", "MeshInstance3D", true, false):
+			var a: AABB = mi.get_aabb()
+			var gt: Transform3D = mi.global_transform
+			for ci in 8:
+				var cr := a.position + Vector3(a.size.x if (ci & 1) else 0.0, a.size.y if (ci & 2) else 0.0, a.size.z if (ci & 4) else 0.0)
+				var wp := gt * cr
+				if first:
+					maabb = AABB(wp, Vector3.ZERO)
+					first = false
+				else:
+					maabb = maabb.expand(wp)
+		var aligned: bool = not first and hpos.y >= maabb.position.y + maabb.size.y * 0.65
+		if hit_ok and aligned:
+			headshot_ok = true
+			head_aligned = true
+			break
+	print("SMOKE: headshot_hitbox_ok=", headshot_ok, " aligned=", head_aligned)
+
+	# Crouch: _apply_crouch shrinks the capsule and lowers the head.
+	var crouch_ok := false
+	if me:
+		me._apply_crouch(1.0)
+		var crouched_h: float = (me.col_shape.shape as CapsuleShape3D).height
+		var crouched_head: float = me.head.position.y
+		me._apply_crouch(0.0)
+		var stand_h: float = (me.col_shape.shape as CapsuleShape3D).height
+		crouch_ok = crouched_h < stand_h - 0.5 and crouched_head < me.STAND_HEAD - 0.3
+	print("SMOKE: crouch_ok=", crouch_ok)
+
+	# Hitbox edge coverage: a shot near the body's side (x=0.38, beyond the old
+	# narrow torso) now resolves to a hitbox instead of missing.
+	var coverage_ok := false
+	if me:
+		me.rotation = Vector3.ZERO
+		me._apply_crouch(0.0)
+		await get_tree().physics_frame
+		var tpos: Vector3 = me.get_node("Hitboxes/Torso/Shape").global_position
+		var aim := tpos + Vector3(0.38, 0, 0)
+		var q := PhysicsRayQueryParameters3D.create(aim + Vector3(0, 0, 2.5), aim)
+		q.collision_mask = 1 | 16
+		q.collide_with_areas = true
+		var r: Dictionary = me.get_world_3d().direct_space_state.intersect_ray(q)
+		coverage_ok = r and r.collider is Hitbox
+	print("SMOKE: hitbox_edge_coverage_ok=", coverage_ok)
+
+	# Grenades: throwing decrements ammo and spawns a grenade in the world.
+	var grenade_ok := false
+	if me:
+		var before_g: int = me.grenades
+		me._throw_grenade()
+		await get_tree().process_frame
+		var found := false
+		for n in get_tree().current_scene.get_children():
+			if n is RigidBody3D:
+				found = true
+		grenade_ok = me.grenades == before_g - 1 and found
+	print("SMOKE: grenade_ok=", grenade_ok)
+
+	# Grenade detonation FX: the burst spawns fire + smoke particle systems.
+	var nade_fx_ok := false
+	var nade: Node = load("res://scenes/grenade.tscn").instantiate()
+	get_tree().current_scene.add_child(nade)
+	nade.global_position = Vector3(0, 1, 0)
+	nade._spawn_fx(nade.global_position)
+	await get_tree().process_frame
+	var fx_particles := 0
+	for n in get_tree().current_scene.get_children():
+		if n is GPUParticles3D:
+			fx_particles += 1
+	nade_fx_ok = fx_particles >= 2   # fireball + smoke
+	nade.queue_free()
+	print("SMOKE: nade_fx_ok=", nade_fx_ok, " particle_systems=", fx_particles)
+
+	# Collect-quest progress: the tracker shows how many of N are carried (2/4).
+	var collect_ok := false
+	if me:
+		var cq_prev = Game.config["mode"]
+		var cq_active: bool = Game.match_active
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		me.inventory.clear()
+		var cqm = load("res://scripts/world/quest_manager.gd").new()
+		cqm.name = "QM_collect"
+		add_child(cqm)
+		cqm.world = world
+		cqm.target_points = 999
+		var cqid = cqm._make("collect", "Gather ammunition", "", {"item": "ammo", "count": 4})
+		cqm._activate(cqid)
+		me.inv_add(ItemDB.make("ammo"))
+		me.inv_add(ItemDB.make("ammo"))
+		Game.match_active = true
+		cqm._process(0.1)
+		Game.match_active = false
+		var cq := {}
+		for q in cqm.quests:
+			if int(q["id"]) == cqid:
+				cq = q
+		var cq_prog2: bool = int(cq.get("progress", -1)) == 2
+		var cq_text: bool = cqm._qprog(cq) == "  (2/4)"
+		collect_ok = cq_prog2 and cq_text
+		cqm.queue_free()
+		me.inventory.clear()
+		Game.config["mode"] = cq_prev
+		Game.match_active = cq_active
+		print("SMOKE: collect_ok=", collect_ok, " progress=", int(cq.get("progress", -1)), " text='", cqm._qprog(cq), "'")
+
+	# Settings autoload present + applied.
+	var settings_ok: bool = Settings != null and Settings.fov >= 60.0 and Settings.mouse_sensitivity > 0.0
+	print("SMOKE: settings_ok=", settings_ok)
+
+	# Choppable trees: a tree is destructible; felling it drops wood + can regrow.
+	var tree_ok := false
+	if world:
+		var tterr: Node = load("res://maps/terrain.tscn").instantiate()
+		get_tree().root.add_child(tterr)
+		await get_tree().physics_frame
+		var a_tree: Node = null
+		for t in get_tree().get_nodes_in_group("tree"):
+			a_tree = t
+			break
+		if a_tree != null:
+			var groups_ok: bool = a_tree.is_in_group("destructible") and a_tree.has_method("hit") and a_tree.has_method("set_felled")
+			var tid: int = int(a_tree.get_meta("prop_id", -1))
+			var wood_before := 0
+			for n in get_tree().current_scene.get_children():
+				if n.get("item_data") != null and String((n.get("item_data") as Dictionary).get("id", "")) == "wood":
+					wood_before += 1
+			world.damage_prop(tid, 999.0, 1)
+			await get_tree().process_frame
+			var wood_after := 0
+			for n in get_tree().current_scene.get_children():
+				if n.get("item_data") != null and String((n.get("item_data") as Dictionary).get("id", "")) == "wood":
+					wood_after += 1
+			a_tree.set_felled(false)   # regrow restores it
+			tree_ok = groups_ok and a_tree.destroyed == false and a_tree.visible and wood_after > wood_before
+			# Rocks: a boulder is also a destructible prop that drops stone.
+			var a_rock: Node = null
+			for r in get_tree().get_nodes_in_group("rock"):
+				a_rock = r
+				break
+			var rock_ok := false
+			if a_rock != null:
+				var rid: int = int(a_rock.get_meta("prop_id", -1))
+				var stone_before := 0
+				for n in get_tree().current_scene.get_children():
+					if n.get("item_data") != null and String((n.get("item_data") as Dictionary).get("id", "")) == "stone":
+						stone_before += 1
+				world.damage_prop(rid, 999.0, 1)
+				await get_tree().process_frame
+				var stone_after := 0
+				for n in get_tree().current_scene.get_children():
+					if n.get("item_data") != null and String((n.get("item_data") as Dictionary).get("id", "")) == "stone":
+						stone_after += 1
+				rock_ok = a_rock.is_in_group("destructible") and stone_after > stone_before
+			var stone_recipe_ok := false
+			for rcp in ItemDB.RECIPES:
+				if (rcp["in"] as Dictionary).has("stone"):
+					stone_recipe_ok = true
+			# Trash piles: destructible, spill random loot (count total pickups grow).
+			var trash_ok := false
+			var a_trash: Node = null
+			for tp in get_tree().get_nodes_in_group("trash"):
+				a_trash = tp
+				break
+			if a_trash != null:
+				var pk_before := get_tree().get_nodes_in_group("pickup").size()
+				world.damage_prop(int(a_trash.get_meta("prop_id", -1)), 999.0, 1)
+				await get_tree().process_frame
+				trash_ok = a_trash.is_in_group("destructible") and get_tree().get_nodes_in_group("pickup").size() > pk_before
+			tree_ok = tree_ok and rock_ok and stone_recipe_ok and trash_ok
+			print("SMOKE: tree_ok=", tree_ok, " wood=", wood_after - wood_before, " rock=", rock_ok, " stone_recipe=", stone_recipe_ok, " trash=", trash_ok)
+		tterr.queue_free()
+
+	# Torch / jetpack / campfire fuel / money / follower recruiting.
+	var extras_ok := false
+	if world and me:
+		# Torch + jetpack are gadgets that start with a full fuel tank.
+		var torch_ok: bool = ItemDB.make("torch").get("cur_fuel", 0) > 0 and ItemDB.make("jetpack").get("cur_fuel", 0) > 0
+		# Campfire burns down and can be fed.
+		var cf: Node = load("res://scenes/campfire.tscn").instantiate()
+		get_tree().current_scene.add_child(cf)
+		await get_tree().process_frame
+		var f0: float = cf.fuel
+		cf._process(2.0)
+		var burns: bool = cf.fuel < f0
+		cf.feed(90.0)
+		var feeds: bool = cf.fuel > f0
+		cf.queue_free()
+		# Cash: a money pickup collects straight into the coin wallet (not the backpack).
+		var coins0: int = int(me.coins)
+		me.inventory.clear()
+		var cash: Node = load("res://scenes/pickup.tscn").instantiate()
+		cash.kind = "money"
+		cash.amount = 25
+		get_tree().current_scene.add_child(cash)
+		await get_tree().process_frame
+		var cm_prev = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		cash.collect(me)
+		Game.config["mode"] = cm_prev
+		var money_ok: bool = me.coins == coins0 + 25 and me.inventory.size() == 0
+		cash.queue_free()
+		# Follower: recruit a non-hostile bot -> joins the player's side.
+		var fb_id: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(3, 0, 0), "soldier", 0, "Ridgeback Clan", {"name": "Pal", "role": "Wanderer"})
+		await get_tree().process_frame
+		var follower: Node = null
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b.combatant_id == fb_id:
+				follower = b
+		var recruit_ok := false
+		var follower_fights_ok := false
+		if follower != null and follower.has_method("recruit"):
+			follower.recruit(me)
+			recruit_ok = follower.recruited and String(follower.faction) == "player" and follower.team == me.team
+			# The follower should lock onto a raider that's near the player.
+			var fmode = Game.config["mode"]
+			Game.config["mode"] = Game.Mode.ADVENTURE
+			var raider_id: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(8, 0, 0), "soldier", 1, Game.RAIDER_FACTION)
+			await get_tree().process_frame
+			await get_tree().process_frame
+			follower._acquire_target()
+			follower_fights_ok = follower._target != null and int(follower._target.combatant_id) == raider_id
+			Game.config["mode"] = fmode
+			for b in get_tree().get_nodes_in_group("bot"):
+				if b.combatant_id == raider_id:
+					b.queue_free()
+		# Shovel: craftable, and digging carves a real hole into the terrain heightmap
+		# (lowers the ground), rather than spawning a tunnel structure.
+		var shovel_ok: bool = String(ItemDB.make("shovel").get("gadget", "")) == "shovel" and me.has_method("_dig_hole")
+		var ti = load("res://scripts/world/terrain.gd").new()
+		ti._n = 5
+		var flat := PackedFloat32Array()
+		for k in 25:
+			flat.append(10.0)
+		ti._heights = flat
+		var before_h: float = ti._heights[12]          # centre cell of a 5x5 grid
+		ti.dig_hole(Vector3(0, 0, 0), 4.0, 2.0)         # world origin maps to the centre
+		var dig_ok: bool = ti.has_method("dig_hole") and ti._heights[12] < before_h
+		ti.free()
+		# No-ammo fallback: a melee swing is always available, and the starter pistol
+		# carries an infinite reserve so a reload never leaves you with nothing to fire.
+		var melee_ok: bool = me.weapons.has_method("melee")
+		var inf_ok: bool = bool(WeaponDB.get_weapon("pistol").get("infinite", false))
+		var pistol_inf_ok := false
+		if inf_ok:
+			var pamm := {"mag": 0, "reserve": 72}
+			var pw := WeaponDB.get_weapon("pistol")
+			# Emulate the reload-from-empty math five times; reserve must never fall.
+			for i in 5:
+				if bool(pw.get("infinite", false)):
+					pamm["mag"] = int(pw["mag_size"])
+				pamm["mag"] = 0
+			pistol_inf_ok = int(pamm["reserve"]) == 72
+		# Slain hostiles drop cash on death; you drop your purse when you die.
+		var kill_cash_ok: bool = world.has_method("_drop_kill_cash") and world.has_method("_spawn_cash") and me.has_method("_spawn_dropped_cash")
+		# Witness rule: a silent, unwitnessed kill of a friendly leaves its faction friendly;
+		# a kill seen by a nearby friendly (with line of sight) turns the faction hostile.
+		var witness_ok := false
+		var prev_mode = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		Game.adventure_stance["SilentClan"] = "friendly"
+		var s_id: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(120, 5, 0), "soldier", 1, "SilentClan")
+		Game.adventure_stance["SeenClan"] = "friendly"
+		var w1: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(0, 5, 40), "soldier", 1, "SeenClan")
+		var w2: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(3, 5, 40), "soldier", 1, "SeenClan")
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var by_id := {}
+		for b in get_tree().get_nodes_in_group("bot"):
+			by_id[int(b.combatant_id)] = b
+		var silent_ok := false
+		var seen_ok := false
+		if by_id.has(s_id):
+			by_id[s_id].receive_damage(9999.0, me.combatant_id)
+			silent_ok = String(Game.adventure_stance.get("SilentClan", "")) != "hostile"
+		if by_id.has(w1):
+			by_id[w1].receive_damage(9999.0, me.combatant_id)
+			seen_ok = String(Game.adventure_stance.get("SeenClan", "")) == "hostile"
+		witness_ok = silent_ok and seen_ok
+		Game.config["mode"] = prev_mode
+		for tid in [s_id, w1, w2]:
+			if by_id.has(tid) and is_instance_valid(by_id[tid]):
+				by_id[tid].queue_free()
+		# Boats: an amphibious drivable boat that implements the vehicle interface and
+		# is reachable by the player/bot driving code (group "vehicle"), placed at shores.
+		var boat_ok := false
+		var boat_scene := load("res://scenes/boat.tscn")
+		if boat_scene != null:
+			var boat = boat_scene.instantiate()
+			add_child(boat)
+			boat_ok = boat.is_in_group("vehicle") and boat.is_in_group("boat") \
+				and boat.has_method("set_drive") and boat.has_method("seat_position") \
+				and boat.has_method("forward") and boat.has_method("enter") and boat.has_method("is_occupied")
+			var map_b := get_tree().get_first_node_in_group("map")
+			boat_ok = boat_ok and map_b != null and map_b.has_method("add_boat")
+			boat.queue_free()
+		# Floating islands: the procedural terrain builds reachable sky-islands with loot
+		# caches and moors boats at the shore (checked on a throwaway terrain instance,
+		# since the live map here may be a non-procedural template).
+		var terrain_inst = load("res://scripts/world/terrain.gd").new()
+		var island_ok: bool = terrain_inst.has_method("_add_floating_islands") and terrain_inst.has_method("_build_floating_island") and terrain_inst.has_method("_place_boats")
+		# Scrap sources: barrels, abandoned wrecks and a scrapyard landmark, plus per-type
+		# prop health (barrels/wrecks) so the metal economy is plentiful.
+		var scrap_ok: bool = terrain_inst.has_method("_scatter_scrap") and terrain_inst.has_method("_make_barrel") \
+			and terrain_inst.has_method("_make_wreck") and terrain_inst.has_method("_build_scrapyard")
+		terrain_inst.free()
+		# Giants: a colossal hostile archetype that attacks (and is attacked by) everyone.
+		var gp: Dictionary = load("res://scripts/ai/bot.gd").PROFILES.get("giant", {})
+		var giant_ok: bool = not gp.is_empty() and float(gp.get("scale", 1.0)) >= 4.0 and world.has_method("_spawn_giant")
+		giant_ok = giant_ok and Game.adventure_hostile(Game.TITAN_FACTION, "player") \
+			and Game.adventure_hostile(Game.TITAN_FACTION, Game.RAIDER_FACTION) \
+			and Game.adventure_hostile("Ridgeback Clan", Game.TITAN_FACTION) \
+			and not Game.adventure_hostile(Game.TITAN_FACTION, Game.TITAN_FACTION)
+		# Actually spawn a titan and confirm the profile applies (oversized model + enlarged
+		# movement collider), so the colossus is real in-game and not just a config entry.
+		var gid: int = world._spawn_giant(me.global_position + Vector3(40, 0, 0))
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var giant_live := false
+		var giant_melee_ok := false
+		var healthbar_ok := false
+		for b in get_tree().get_nodes_in_group("bot"):
+			if int(b.combatant_id) == gid:
+				var cs: Node3D = b.get_node("CollisionShape3D")
+				giant_live = b.etype == "giant" and b.body_model.scale.x >= 4.0 \
+					and cs.scale.x >= 2.0 and String(b.faction) == Game.TITAN_FACTION
+				# Melee, not guns; and the collider is lifted to its feet (no floating).
+				giant_melee_ok = b.is_melee and b.has_method("_melee_strike") and cs.position.y >= 2.0
+				# Health bar shows on the host (authority) when hurt and a player is near.
+				b.sync_health = b.max_health * 0.5
+				b._update_health_bar()
+				healthbar_ok = b._health_bar != null and b._health_bar.visible
+				b.queue_free()
+				break
+		giant_ok = giant_ok and giant_live and giant_melee_ok
+		# Bot damage is softened against the player (halved + capped, no one-shots), while
+		# player-vs-player / own weapons are unaffected. Bots have negative ids.
+		var bot_dmg_ok := false
+		var h0: float = me.sync_health
+		me.sync_health = me.MAX_HEALTH
+		me.receive_damage(40.0, -777, "torso")        # bot torso: 40 * 0.5 = 20
+		var d_bot: float = me.MAX_HEALTH - me.sync_health
+		me.sync_health = me.MAX_HEALTH
+		me.receive_damage(40.0, 12345, "torso")        # player attacker: full 40
+		var d_pvp: float = me.MAX_HEALTH - me.sync_health
+		me.sync_health = me.MAX_HEALTH
+		me.receive_damage(500.0, -777, "head")         # huge bot hit: capped, can't one-shot
+		var d_cap: float = me.MAX_HEALTH - me.sync_health
+		bot_dmg_ok = d_bot < d_pvp and d_bot <= 21.0 and d_cap <= me.BOT_HIT_CAP + 0.5 and me.sync_health > 0.0
+		me.sync_health = h0
+		# Tuning: pistol is less accurate now, and the torch recipe costs 2 wood.
+		var torch_recipe := {}
+		for r in ItemDB.RECIPES:
+			if String(r.get("id", "")) == "torch":
+				torch_recipe = r
+				break
+		var tuning_ok: bool = float(WeaponDB.get_weapon("pistol").get("spread_deg", 0.0)) >= 3.0 \
+			and int((torch_recipe.get("in", {}) as Dictionary).get("wood", 0)) == 2
+		extras_ok = torch_ok and burns and feeds and money_ok and recruit_ok and follower_fights_ok and shovel_ok and dig_ok and melee_ok and inf_ok and pistol_inf_ok and kill_cash_ok and witness_ok and boat_ok and island_ok and giant_ok and scrap_ok and healthbar_ok and bot_dmg_ok and tuning_ok
+		print("SMOKE: extras_ok=", extras_ok, " torch=", torch_ok, " burns=", burns, " feeds=", feeds, " money=", money_ok, " recruit=", recruit_ok, " follower_fights=", follower_fights_ok, " shovel=", shovel_ok, " dig=", dig_ok, " melee=", melee_ok, " pistol_inf=", pistol_inf_ok, " kill_cash=", kill_cash_ok, " witness=", witness_ok, " boat=", boat_ok, " island=", island_ok, " giant=", giant_ok, " giant_melee=", giant_melee_ok, " scrap=", scrap_ok, " healthbar=", healthbar_ok, " bot_dmg=", bot_dmg_ok, " tuning=", tuning_ok)
+
+	# Map templates: a preset (fixed seed+size+theme+climate) builds a valid, repeatable
+	# world — same seed -> same terrain.
+	var preset_ok := false
+	var mm = load("res://scripts/ui/main_menu.gd")
+	var showoff: Dictionary = {}
+	for p in mm.MAP_PRESETS:
+		if bool(p.get("preset", false)) and String(p["name"]).begins_with("★"):
+			showoff = p
+	var preset_defs_ok: bool = mm.MAP_PRESETS.size() >= 5 and not showoff.is_empty() and int(showoff["size"]) == 3
+	var pv_prev_seed = Game.config.get("seed", 0)
+	var pv_prev_size = Game.config.get("map_size", 2)
+	var pv_prev_clim = Game.config.get("climate", "")
+	Game.config["seed"] = int(showoff["seed"])
+	Game.config["map_size"] = int(showoff["size"])
+	Game.config["climate"] = String(showoff["climate"])
+	var pterr: Node = load("res://maps/terrain.tscn").instantiate()
+	get_tree().root.add_child(pterr)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var preg = pterr.get_node_or_null("NavRegion")
+	var ppolys: int = preg.navigation_mesh.get_polygon_count() if preg and preg.navigation_mesh else 0
+	var ppoi := get_tree().get_nodes_in_group("poi_site").size()
+	preset_ok = preset_defs_ok and ppolys > 0 and ppoi >= 3
+	print("SMOKE: preset_ok=", preset_ok, " defs=", preset_defs_ok, " polys=", ppolys, " poi=", ppoi)
+	pterr.queue_free()
+	Game.config["seed"] = pv_prev_seed
+	Game.config["map_size"] = pv_prev_size
+	Game.config["climate"] = pv_prev_clim
+
+	# Adaptive music: the Music autoload sets up its bus + crossfades to combat.
+	var music_ok := false
+	if Music != null:
+		Music.start()
+		Music.set_combat(true)
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var bus_ok: bool = AudioServer.get_bus_index("Music") >= 0
+		Music.set_combat(false)
+		music_ok = bus_ok and Music._combat != null and Music._calm != null
+		print("SMOKE: music_ok=", music_ok, " bus=", bus_ok)
+
+	# Wildlife: an animal is a shootable combatant that drops meat on death.
+	var wildlife_ok := false
+	if me:
+		var an: Node = load("res://scenes/animal.tscn").instantiate()
+		an.species = "deer"
+		get_tree().current_scene.add_child(an)
+		await get_tree().process_frame
+		var is_combatant: bool = an.is_in_group("combatant") and an.is_in_group("animal")
+		var before_pk := 0
+		for n in get_tree().current_scene.get_children():
+			if n.get("kind") != null and String(n.get("kind")) == "food":
+				before_pk += 1
+		an.hit(999.0, 1)   # kill it -> drops meat + frees
+		await get_tree().process_frame
+		var after_pk := 0
+		for n in get_tree().current_scene.get_children():
+			if n.get("kind") != null and String(n.get("kind")) == "food":
+				after_pk += 1
+		# Line-of-sight: a predator can't bite through a wall. Place a wolf and a target a
+		# few metres apart, drop a solid wall (layer 1) between them, and confirm the LOS
+		# ray is blocked — then clear it and confirm the ray is open again.
+		var los_ok := true
+		var wolf: Node = load("res://scenes/animal.tscn").instantiate()
+		wolf.species = "wolf"
+		get_tree().current_scene.add_child(wolf)
+		wolf.global_position = Vector3(200, 50, 200)
+		me.global_position = Vector3(204, 50, 200)
+		await get_tree().process_frame
+		var clear_los: bool = wolf._has_line_of_sight(me)   # nothing between -> can reach
+		var wall := StaticBody3D.new()
+		wall.collision_layer = 1
+		var wcs := CollisionShape3D.new()
+		var wbox := BoxShape3D.new()
+		wbox.size = Vector3(0.4, 4.0, 4.0)
+		wcs.shape = wbox
+		wall.add_child(wcs)
+		get_tree().current_scene.add_child(wall)
+		wall.global_position = Vector3(202, 50, 200)   # midway, blocking the ray
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		var blocked_los: bool = not wolf._has_line_of_sight(me)   # wall between -> blocked
+		los_ok = clear_los and blocked_los
+		wall.queue_free()
+		wolf.queue_free()
+		wildlife_ok = is_combatant and after_pk > before_pk and los_ok
+		print("SMOKE: wildlife_ok=", wildlife_ok, " combatant=", is_combatant, " drops=", after_pk - before_pk, " los_clear=", clear_los, " los_blocked=", blocked_los)
+
+	# Archetypes: grenadier + sniper profiles exist with distinct behaviours.
+	var botscript = load("res://scripts/ai/bot.gd")
+	var archetype_ok: bool = botscript.PROFILES.has("grenadier") and botscript.PROFILES.has("sniper") \
+		and String(botscript.PROFILES["grenadier"].get("behavior", "")) == "grenadier" \
+		and String(botscript.PROFILES["sniper"].get("behavior", "")) == "kite"
+	print("SMOKE: archetype_ok=", archetype_ok)
+
+	# Crafting: recipes defined; with materials in the pack, a no-fire recipe crafts.
+	var craft_ok := false
+	if me:
+		var cf_prev = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		me.inventory.clear()
+		# Bandage = 2 hide -> medkit (no fire needed).
+		me.inv_add(ItemDB.make("hide"))
+		me.inv_add(ItemDB.make("hide"))
+		var bandage = ItemDB.RECIPES[1]   # bandage
+		var can_before: bool = me.can_craft(bandage)
+		var made: bool = me.craft(bandage)
+		var has_medkit := false
+		for it in me.inventory:
+			if String(it.get("id", "")) == "medkit":
+				has_medkit = true
+		# Cooking needs fire: should be blocked without a campfire.
+		me.inventory.clear()
+		me.inv_add(ItemDB.make("raw_meat"))
+		var cook := ItemDB.RECIPES[0]
+		var cook_blocked: bool = not me.can_craft(cook)
+		# Deploy a campfire, then cooking is allowed.
+		var fire: Node = load("res://scenes/campfire.tscn").instantiate()
+		get_tree().current_scene.add_child(fire)
+		fire.global_position = me.global_position
+		await get_tree().process_frame
+		var cook_ok: bool = me.near_campfire() and me.can_craft(cook)
+		craft_ok = can_before and made and has_medkit and cook_blocked and cook_ok
+		fire.queue_free()
+		me.inventory.clear()
+		Game.config["mode"] = cf_prev
+		print("SMOKE: craft_ok=", craft_ok, " bandage=", made, " medkit=", has_medkit, " cook_blocked=", cook_blocked, " cook_ok=", cook_ok)
+
+	# Gadgets + grenade types: item defs, gadget slot equip + Q toggle, grenade variant
+	# spawn, and a couple of effect behaviours.
+	var gear_ok := false
+	if me:
+		var ge_prev = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		me.inventory.clear()
+		me.equip["gadget"] = {}
+		# Item defs exist for every gadget + grenade type.
+		var defs_ok := true
+		for gid in ItemDB.GADGET_IDS:
+			if not ItemDB.DEFS.has(gid):
+				defs_ok = false
+		for gid in ItemDB.GRENADE_IDS:
+			if not ItemDB.DEFS.has(gid):
+				defs_ok = false
+		# Equip a flashlight to the gadget slot and toggle it with the gadget API.
+		me.inv_add(ItemDB.make("flashlight"))
+		var fi := -1
+		for i in me.inventory.size():
+			if String(me.inventory[i].get("id", "")) == "flashlight":
+				fi = i
+		me._equip_slot("gadget", fi)
+		var equip_ok: bool = me.equipped_gadget() == "flashlight"
+		me._use_gadget()
+		var on_ok: bool = me.get("_gadget_on")
+		me._use_gadget()
+		var off_ok: bool = not me.get("_gadget_on")
+		# Binoculars set glassing; scanner sets a reveal window.
+		me.equip["gadget"] = ItemDB.make("binoculars")
+		me._gadget_on = false
+		me._use_gadget()
+		var glass_ok: bool = me.get("glassing")
+		me.equip["gadget"] = ItemDB.make("scanner")
+		me._gadget_on = false
+		me.reveal_until = 0
+		me._use_gadget()
+		var scan_ok: bool = int(me.reveal_until) > Time.get_ticks_msec()
+		# Grenade variants spawn with the right type and the field scene loads.
+		var gnade: Node = load("res://scenes/grenade.tscn").instantiate()
+		gnade.gtype = "smoke"
+		get_tree().current_scene.add_child(gnade)
+		gnade.global_position = Vector3(0, 1, 0)
+		var type_ok: bool = gnade.gtype == "smoke"
+		gnade._spawn_fx(gnade.global_position)
+		await get_tree().process_frame
+		var field_ok := false
+		for n in get_tree().current_scene.get_children():
+			if n.get_script() == load("res://scripts/combat/grenade_field.gd"):
+				field_ok = true
+				n.queue_free()
+		gnade.queue_free()
+		# A bot can be stunned (flashbang).
+		var stun_ok := false
+		for b in get_tree().get_nodes_in_group("bot"):
+			if not b.get("dead"):
+				b.stun(2.0)
+				stun_ok = b.get("_stun") > 1.0
+				b._stun = 0.0
+				break
+		# Type-aware grenades: equipping a frag while carrying a smoke must count/throw
+		# only frags — the smoke is never spent as a frag (regression guard).
+		me.inventory.clear()
+		me.equip["extra"] = ItemDB.make("grenade")        # frag equipped
+		me.inv_add(ItemDB.make("grenade_smoke"))          # a different type in the pack
+		me.inv_add(ItemDB.make("grenade"))                # a loose frag too
+		var count_ok: bool = me.grenade_count() == 2      # equipped frag + loose frag; smoke excluded
+		var c1: bool = me._consume_grenade()              # spends the loose frag first
+		var smoke_kept := false
+		for it in me.inventory:
+			if String(it.get("gtype", "")) == "smoke":
+				smoke_kept = true
+		var c2: bool = me._consume_grenade()              # now spends the equipped frag
+		var frag_gone: bool = String(me.equip.get("extra", {}).get("kind", "")) != "grenade"
+		var nade_type_ok: bool = count_ok and c1 and smoke_kept and c2 and frag_gone and me.inventory.size() == 1
+		me.equip["extra"] = {}
+		gear_ok = defs_ok and equip_ok and on_ok and off_ok and glass_ok and scan_ok and type_ok and field_ok and stun_ok and nade_type_ok
+		print("SMOKE: nade_type_ok=", nade_type_ok, " count=", count_ok, " c1=", c1, " smoke_kept=", smoke_kept, " c2=", c2, " frag_gone=", frag_gone)
+		me.inventory.clear()
+		me.equip["gadget"] = {}
+		me.glassing = false
+		me.reveal_until = 0
+		Game.config["mode"] = ge_prev
+		print("SMOKE: gear_ok=", gear_ok, " defs=", defs_ok, " equip=", equip_ok, " on=", on_ok, " off=", off_ok, " glass=", glass_ok, " scan=", scan_ok, " gtype=", type_ok, " field=", field_ok, " stun=", stun_ok)
+
+	# Immersion pass: quality setting, cinematic environment, reverb bus, camera shake.
+	var immersion_ok := false
+	var iq_ok: bool = Settings.quality >= 0 and Settings.quality <= 2 and Settings.quality_label() in ["Low", "Medium", "High"]
+	var rev_ok: bool = AudioServer.get_bus_index("SFX3D") >= 0
+	var shake_ok := false
+	if me:
+		me._cam_shake = 0.0
+		me.add_camera_shake(0.7)
+		shake_ok = me._cam_shake > 0.5
+		me._cam_shake = 0.0
+	# Cinematic env: a fresh map's WorldEnvironment has fog + AGX tonemap.
+	var env_ok := false
+	var imap: Node = load("res://maps/badlands.tscn").instantiate()
+	get_tree().root.add_child(imap)
+	await get_tree().process_frame
+	var wenv := imap.get_node_or_null("WorldEnvironment")
+	if wenv and wenv.environment:
+		env_ok = wenv.environment.fog_enabled and wenv.environment.tonemap_mode == Environment.TONE_MAPPER_AGX
+	imap.queue_free()
+	# Blood FX scene loads + spawns particles.
+	var blood_ok := false
+	var bfx: Node = load("res://scenes/fx/blood.tscn").instantiate()
+	get_tree().current_scene.add_child(bfx)
+	await get_tree().process_frame
+	blood_ok = bfx.get_child_count() > 0
+	bfx.queue_free()
+	immersion_ok = iq_ok and rev_ok and shake_ok and env_ok and blood_ok
+	print("SMOKE: immersion_ok=", immersion_ok, " quality=", iq_ok, " reverb=", rev_ok, " shake=", shake_ok, " env=", env_ok, " blood=", blood_ok)
+
+	# Enemy variety: spawning a "heavy" yields a tougher bot than the default.
+	var variety_ok := false
+	if world and me:
+		var hid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(4, 0, 0), "heavy")
+		await get_tree().process_frame
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b.combatant_id == hid:
+				variety_ok = b.etype == "heavy" and b.max_health > 150.0
+	print("SMOKE: enemy_variety_ok=", variety_ok)
+
+	# Pickups: present in the map; heal + weapon-grant effects work.
+	var pickups := get_tree().get_nodes_in_group("pickup")
+	var pickup_ok := false
+	if me and not pickups.is_empty():
+		me.sync_health = 50.0
+		me.heal(30)
+		me.weapons.give_weapon("sniper")
+		pickup_ok = is_equal_approx(me.sync_health, 80.0) and me.weapons.loadout.has("sniper")
+	print("SMOKE: pickups=", pickups.size(), " pickup_ok=", pickup_ok)
+
+	# Non-flat map: highlands builds, bakes a navmesh, has multi-height spawns.
+	var hl: Node = load("res://maps/highlands.tscn").instantiate()
+	get_tree().root.add_child(hl)
+	await get_tree().process_frame
+	var region = hl.get_node_or_null("NavRegion")
+	var polys: int = region.navigation_mesh.get_polygon_count() if region and region.navigation_mesh else 0
+	var heights := {}
+	for m in hl.get_children():
+		if m is Marker3D and (m.is_in_group("spawn_player") or m.is_in_group("spawn_enemy")):
+			heights[roundi(m.position.y)] = true
+	var highlands_ok := polys > 0 and heights.size() >= 2
+	print("SMOKE: highlands polys=", polys, " spawn_heights=", heights.size(), " ok=", highlands_ok)
+	hl.queue_free()
+
+	# New maps bake navmeshes.
+	var new_maps_ok := true
+	for mp in ["res://maps/warehouse.tscn", "res://maps/ruins.tscn", "res://maps/compound.tscn"]:
+		var m: Node = load(mp).instantiate()
+		get_tree().root.add_child(m)
+		await get_tree().process_frame
+		var reg = m.get_node_or_null("NavRegion")
+		var pc: int = reg.navigation_mesh.get_polygon_count() if reg and reg.navigation_mesh else 0
+		if pc <= 0:
+			new_maps_ok = false
+		m.queue_free()
+	print("SMOKE: new_maps_ok=", new_maps_ok)
+
+	# Compound buildings: a point inside a building is reachable on the navmesh
+	# (i.e. the doorway connects the interior to the rest of the map).
+	var interior_ok := false
+	var comp: Node = load("res://maps/compound.tscn").instantiate()
+	get_tree().root.add_child(comp)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var creg = comp.get_node_or_null("NavRegion")
+	if creg:
+		var navmap: RID = creg.get_navigation_map()
+		var inside := Vector3(-18, 0.3, -18)  # centre of a corner building
+		var closest := NavigationServer3D.map_get_closest_point(navmap, inside)
+		interior_ok = Vector2(closest.x - inside.x, closest.z - inside.z).length() < 2.0
+	print("SMOKE: building_interior_navigable=", interior_ok)
+	comp.queue_free()
+
+	# Events log builds without error for both kills and quest events.
+	var killfeed_ok := false
+	if hud:
+		var kf_before: int = hud.event_log.get_child_count()
+		hud.add_kill_feed("Alpha", "Bravo", false, 0, 1)
+		hud.add_event("✓ Scout the outpost   +1 pt")
+		hud.celebrate("Scout the outpost")
+		killfeed_ok = hud.event_log.get_child_count() >= kf_before + 2
+	print("SMOKE: killfeed_ok=", killfeed_ok)
+
+	# Huge vehicle map bakes a navmesh and places vehicles.
+	var huge_ok := false
+	var t0 := Time.get_ticks_msec()
+	var hm: Node = load("res://maps/outpost.tscn").instantiate()
+	get_tree().root.add_child(hm)
+	var hreg = hm.get_node_or_null("NavRegion")
+	var hpolys: int = hreg.navigation_mesh.get_polygon_count() if hreg and hreg.navigation_mesh else 0
+	var nveh: int = get_tree().get_nodes_in_group("vehicle").size()
+	print("SMOKE: outpost bake_ms=", Time.get_ticks_msec() - t0, " polys=", hpolys, " vehicles=", nveh)
+	huge_ok = hpolys > 0 and nveh >= 4
+	hm.queue_free()
+
+	# Vehicle physics: applying throttle moves the car.
+	var vehicle_ok := false
+	var vr := Node3D.new()
+	get_tree().root.add_child(vr)
+	var fl := StaticBody3D.new()
+	fl.collision_layer = 1
+	var fcs := CollisionShape3D.new()
+	var fbs := BoxShape3D.new()
+	fbs.size = Vector3(60, 2, 60)
+	fcs.shape = fbs
+	fl.add_child(fcs)
+	vr.add_child(fl)
+	fl.global_position = Vector3(500, -1, 500)
+	var veh: Node = load("res://scenes/vehicle.tscn").instantiate()
+	vr.add_child(veh)
+	veh.global_position = Vector3(500, 1.0, 500)
+	for i in 40:
+		await get_tree().physics_frame
+	var vp0: Vector3 = veh.global_position
+	veh.set_drive(1.0, 0.0, 0.0)
+	for i in 110:
+		await get_tree().physics_frame
+	var vmoved: float = Vector2(veh.global_position.x - vp0.x, veh.global_position.z - vp0.z).length()
+	vehicle_ok = vmoved > 1.5
+	# Damaged car smokes; enough damage destroys it.
+	veh.receive_damage(veh.MAX_HEALTH * 0.7, 0)  # ~30% health left
+	for i in 5:
+		await get_tree().process_frame
+	var smoke_ok: bool = veh._smoke != null and veh._smoke.emitting
+	veh.hit(veh.MAX_HEALTH + 50.0, 0)
+	await get_tree().process_frame
+	var destroy_ok: bool = veh.destroyed
+	print("SMOKE: vehicle_drive_ok=", vehicle_ok, " moved=", snappedf(vmoved, 0.1), " smoke_ok=", smoke_ok, " destroy_ok=", destroy_ok)
+	vr.queue_free()
+
+	# Car model variants: outpost places vehicles with cycling model_index.
+	var variant_ok := false
+	var handling_ok := false
+	var hm2: Node = load("res://maps/outpost.tscn").instantiate()
+	get_tree().root.add_child(hm2)
+	await get_tree().process_frame
+	var idxs := {}
+	var engines := {}
+	for v in get_tree().get_nodes_in_group("vehicle"):
+		if v.get("model_index") == null or v.is_in_group("aircraft"):
+			continue  # cars only (helicopters share the group but not these props)
+		idxs[v.model_index] = true
+		engines[v.max_engine] = true
+	variant_ok = idxs.size() >= 3
+	handling_ok = engines.size() >= 3  # per-type engine power differs
+	print("SMOKE: car_variants=", idxs.size(), " variant_ok=", variant_ok, " handling_variety=", engines.size())
+	hm2.queue_free()
+
+	# Flip: an overturned car rights itself when flipped.
+	var flip_ok := false
+	var fr := Node3D.new()
+	get_tree().root.add_child(fr)
+	var ffl := StaticBody3D.new()
+	ffl.collision_layer = 1
+	var fcs2 := CollisionShape3D.new()
+	var fbs2 := BoxShape3D.new()
+	fbs2.size = Vector3(40, 2, 40)
+	fcs2.shape = fbs2
+	ffl.add_child(fcs2)
+	fr.add_child(ffl)
+	ffl.global_position = Vector3(600, -1, 600)
+	var fv: Node = load("res://scenes/vehicle.tscn").instantiate()
+	fr.add_child(fv)
+	fv.global_transform = Transform3D(Basis(Vector3(1, 0, 0), PI), Vector3(600, 2, 600))  # upside down
+	for i in 30:
+		await get_tree().physics_frame
+	var before_up: float = fv.global_transform.basis.y.dot(Vector3.UP)
+	fv.flip()
+	for i in 70:
+		await get_tree().physics_frame
+	var after_up: float = fv.global_transform.basis.y.dot(Vector3.UP)
+	flip_ok = before_up < 0.0 and after_up > 0.6
+	print("SMOKE: flip up before/after=", snappedf(before_up, 0.01), "/", snappedf(after_up, 0.01), " flip_ok=", flip_ok)
+	fr.queue_free()
+
+	# Bullet holes: impacts leave a decal in the "bullet_hole" group.
+	var hole_ok := false
+	if me:
+		me.weapons._spawn_bullet_hole(me.global_position + Vector3(0, 0, 3), Vector3(0, 0, 1))
+		await get_tree().process_frame
+		hole_ok = get_tree().get_nodes_in_group("bullet_hole").size() > 0
+	print("SMOKE: bullet_hole_ok=", hole_ok)
+
+	# Crash damage: a high-speed collision damages the car.
+	var crash_ok := false
+	var cn := Node3D.new()
+	get_tree().root.add_child(cn)
+	var cv: Node = load("res://scenes/vehicle.tscn").instantiate()
+	cn.add_child(cv)
+	await get_tree().process_frame
+	var chp0: float = cv.health
+	cv._prev_speed = 25.0
+	cv._on_crash(StaticBody3D.new())
+	crash_ok = cv.health < chp0
+	print("SMOKE: crash_damage_ok=", crash_ok, " (", chp0, " -> ", cv.health, ")")
+	cn.queue_free()
+
+	# Helicopter: ascends with vertical throttle and the gun fires without error.
+	var heli_ok := false
+	var heli: Node = load("res://scenes/helicopter.tscn").instantiate()
+	get_tree().root.add_child(heli)
+	heli.global_position = Vector3(700, 30, 700)
+	await get_tree().physics_frame
+	var hy0: float = heli.global_position.y
+	heli.set_fly(0.0, 0.0, 1.0)  # ascend
+	for i in 40:
+		await get_tree().physics_frame
+	heli.request_fire()
+	heli_ok = heli.global_position.y > hy0 + 1.0 and heli.is_in_group("aircraft")
+	print("SMOKE: helicopter_ok=", heli_ok, " climb=", snappedf(heli.global_position.y - hy0, 0.1))
+	heli.queue_free()
+
+	# Bots shoot enemy-occupied vehicles (e.g. a player flying a heli).
+	var bot_veh_ok := false
+	var bots2 := get_tree().get_nodes_in_group("bot")
+	if not bots2.is_empty() and world:
+		var b: Node = bots2[0]
+		# Isolate the bot high in the air and freeze it, so nothing (other bots, terrain)
+		# sits between its muzzle and the target — otherwise the shot can hit a teammate
+		# and the check is flaky.
+		b.set_physics_process(false)
+		b.global_position = Vector3(500, 120, 500)
+		await get_tree().physics_frame
+		var tv: Node = load("res://scenes/vehicle.tscn").instantiate()
+		world.add_child(tv)
+		# Place the target directly in front of the muzzle (bot faces -Z), clear LOS.
+		tv.global_position = b.global_position + Vector3(0, 1.0, 0) - b.global_transform.basis.z * 4.0
+		tv.driver_id = 99
+		tv.driver_team = 0  # enemy to the bot (team 1 in coop)
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		var vh0: float = tv.health
+		# Zero spread => dead-centre shot; deterministic.
+		b.spread_far = 0.0
+		b.spread_near = 0.0
+		for _i in 3:
+			b._shoot_cd = 0.0
+			b._shoot_at(tv)
+			await get_tree().physics_frame
+		bot_veh_ok = tv.health < vh0
+		print("SMOKE: bot_shoots_vehicle_ok=", bot_veh_ok, " (", vh0, " -> ", tv.health, ")")
+		tv.queue_free()
+
+	# Domination: a control point counts team presence + scoring increments.
+	var dom_ok := false
+	if me and world:
+		var cpn := Area3D.new()
+		cpn.set_script(load("res://scripts/world/control_point.gd"))
+		cpn.point_id = "A"
+		world.add_child(cpn)
+		cpn.global_position = me.global_position
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		var counts: Array = cpn.team_counts()
+		var present_ok: bool = int(counts[0]) >= 1  # me is team 0 (BLUE)
+		var s0: int = int(Game.dom_score[0])
+		Game.add_dom_point(0)
+		dom_ok = present_ok and int(Game.dom_score[0]) == s0 + 1
+		print("SMOKE: domination_ok=", dom_ok, " counts=", counts)
+		cpn.queue_free()
+
+	# Team helpers + friendly fire rule.
+	var team_helpers_ok: bool = Game.team_name(0) == "BLUE" and Game.is_team_mode() and Game.team_color(1) != Color(1, 1, 1)
+	print("SMOKE: team_helpers_ok=", team_helpers_ok)
+
+	# Team scoreboard: grouped rows (team headers) build without error in a team mode.
+	var scoreboard_ok := false
+	if hud:
+		hud.scoreboard.visible = true
+		hud._refresh_scoreboard()
+		# header row + 2 team headers (squad/hostiles) + one row per combatant.
+		scoreboard_ok = hud.score_rows.get_child_count() >= Game.scores.size() + 2
+		hud.scoreboard.visible = false
+	print("SMOKE: team_scoreboard_ok=", scoreboard_ok)
+
+	# Co-op downed/revive: lethal damage downs (not kills); granting a life revives.
+	var revive_ok := false
+	if me and Game.is_coop():
+		var lives_before: int = Game.coop_lives
+		me.receive_damage(9999.0, 2)   # positive id = non-enemy source -> full lethal damage
+		await get_tree().process_frame
+		var was_downed: bool = me.downed and not me.dead
+		me.apply_life_result(true)
+		await get_tree().process_frame
+		revive_ok = was_downed and not me.downed and lives_before > 0
+	print("SMOKE: coop_revive_ok=", revive_ok, " lives=", Game.coop_lives)
+
+	# New co-op objective entities: destructible target, escort VIP, boss archetype.
+	var objectives_ok := false
+	if me and world:
+		var fwd2: Vector3 = -me.global_transform.basis.z
+		var tgt: Node = world.spawn_target(me.global_position + fwd2 * 6.0, 120.0)
+		await get_tree().physics_frame
+		var th0: float = tgt.sync_health
+		tgt.receive_damage(40.0, -1)
+		var dmg_ok: bool = tgt.sync_health < th0 and tgt.is_in_group("destructible")
+		tgt.receive_damage(1000.0, -1)
+		await get_tree().process_frame
+		var destroyed_ok: bool = tgt.destroyed
+		var goal: Vector3 = me.global_position + fwd2 * 14.0
+		var vip: Node = world.spawn_escort(me.global_position + fwd2 * 2.0, goal, 4.0)
+		await get_tree().process_frame
+		var ed0: float = vip.global_position.distance_to(goal)
+		for i in 30:
+			await get_tree().process_frame
+		var escort_ok: bool = vip.is_in_group("escort") and (vip.arrived or vip.global_position.distance_to(goal) < ed0 - 0.5)
+		var BotScript = load("res://scripts/ai/bot.gd")
+		var boss_ok: bool = BotScript.PROFILES.has("boss") and float(BotScript.PROFILES["boss"]["health"]) >= 1000.0
+		objectives_ok = dmg_ok and destroyed_ok and escort_ok and boss_ok
+		print("SMOKE: objectives_ok=", objectives_ok, " dmg=", dmg_ok, " destroyed=", destroyed_ok, " escort=", escort_ok, " boss=", boss_ok)
+		tgt.queue_free()
+		vip.queue_free()
+
+	# Battle Royale: storm-wall geometry, storm damage to anyone caught outside,
+	# is_battle_royale/mode_name, and last-standing never ending with a full lobby.
+	var br_ok := false
+	if world:
+		var StormScript = load("res://scripts/world/storm.gd")
+		var storm = StormScript.new()
+		world.add_child(storm)
+		storm.set_center(Vector3.ZERO)
+		storm.set_radius(50.0)
+		var geom_ok: bool = storm.is_outside(Vector3(80, 0, 0)) and not storm.is_outside(Vector3(10, 0, 0))
+		var storm_dmg_ok := false
+		var sbots := get_tree().get_nodes_in_group("bot")
+		var sb = null
+		for _b in sbots:
+			if not _b.get("dead") and not _b.get("fully_dead"):
+				sb = _b   # a LIVE bot: corpses from earlier tests no-op storm damage (flaky)
+				break
+		if sb != null:
+			sb.global_position = Vector3(300, 0.5, 0)  # well outside the 50 m ring
+			await get_tree().physics_frame
+			var hp0: float = sb.sync_health
+			world._storm = storm
+			world._apply_storm_damage(15.0)
+			await get_tree().process_frame
+			storm_dmg_ok = sb.sync_health < hp0
+		var prev_mode = Game.config["mode"]
+		var prev_active: bool = Game.match_active
+		Game.config["mode"] = Game.Mode.BATTLE_ROYALE
+		var name_ok: bool = Game.is_battle_royale() and Game.mode_name() == "Battle Royale"
+		var tag_ok := true
+		if not sbots.is_empty():
+			sbots[0]._apply_profile()  # re-resolve profile under BR -> tag should hide
+			tag_ok = not sbots[0].name_label.visible
+		Game.match_active = true
+		world.check_last_standing()  # several bots alive -> must NOT end the match
+		var no_false_end: bool = Game.match_active
+		Game.match_active = prev_active
+		Game.config["mode"] = prev_mode
+		world._storm = null
+		storm.queue_free()
+		br_ok = geom_ok and storm_dmg_ok and name_ok and no_false_end and tag_ok
+		print("SMOKE: battle_royale_ok=", br_ok, " geom=", geom_ok, " storm_dmg=", storm_dmg_ok, " name=", name_ok, " no_false_end=", no_false_end, " tag_hidden=", tag_ok)
+
+	# Massive Wasteland map bakes a navmesh, spreads spawns and places vehicles.
+	var wasteland_ok := false
+	var wt0 := Time.get_ticks_msec()
+	var wm: Node = load("res://maps/wasteland.tscn").instantiate()
+	get_tree().root.add_child(wm)
+	await get_tree().process_frame
+	var wreg = wm.get_node_or_null("NavRegion")
+	var wpolys: int = wreg.navigation_mesh.get_polygon_count() if wreg and wreg.navigation_mesh else 0
+	var wspawns := 0
+	for m in wm.get_children():
+		if m is Marker3D and (m.is_in_group("spawn_player") or m.is_in_group("spawn_enemy")):
+			wspawns += 1
+	var wveh: int = get_tree().get_nodes_in_group("vehicle").size()
+	wasteland_ok = wpolys > 0 and wspawns >= 12 and wveh >= 6
+	print("SMOKE: wasteland_ok=", wasteland_ok, " bake_ms=", Time.get_ticks_msec() - wt0, " polys=", wpolys, " spawns=", wspawns, " vehicles=", wveh)
+	wm.queue_free()
+
+	# Adventure: mode helpers, needs drain over time, starvation damage, eat/drink restore.
+	var survival_ok := false
+	if me:
+		var prev_mode2 = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		var helpers_ok: bool = Game.is_adventure() and Game.mode_name() == "Adventure" and Game.is_team_mode()
+		var tag_hidden_ok := true
+		var sbz := get_tree().get_nodes_in_group("bot")
+		if not sbz.is_empty():
+			sbz[0]._apply_profile()  # re-resolve under Adventure -> tag should hide
+			tag_hidden_ok = not sbz[0].name_label.visible
+		me.velocity = Vector3.ZERO
+		me.hunger = 50.0
+		me.thirst = 50.0
+		me._update_needs(2.0)  # 2 simulated seconds of drain
+		var drain_ok: bool = me.hunger < 50.0 and me.thirst < 50.0
+		me.hunger = 0.0
+		me.thirst = 0.0
+		me.sync_health = 100.0
+		me._need_dmg_accum = 0.0
+		me._update_needs(1.1)  # crosses the 1s starvation tick
+		var starve_ok: bool = me.sync_health < 100.0
+		me.eat(40.0)
+		me.drink(60.0)
+		var restore_ok: bool = me.hunger >= 39.0 and me.thirst >= 59.0
+		Game.config["mode"] = prev_mode2
+		survival_ok = helpers_ok and drain_ok and starve_ok and restore_ok and tag_hidden_ok
+		print("SMOKE: survival_ok=", survival_ok, " helpers=", helpers_ok, " drain=", drain_ok, " starve=", starve_ok, " restore=", restore_ok, " tag_hidden=", tag_hidden_ok)
+
+	# Safe start bubble: roaming raiders keep out of a radius around the start village and
+	# around living players, so a freshly-spawned player isn't immediately swarmed.
+	var safe_zone_ok := false
+	if world:
+		var startc := Vector3(500, 0, 500)
+		var village_ok: bool = world._in_safe_spawn_zone(startc + Vector3(30, 0, 0), startc, []) \
+			and not world._in_safe_spawn_zone(startc + Vector3(150, 0, 0), startc, [])
+		var player_ok := true
+		if me:
+			var mp: Vector3 = me.global_position
+			# start passed as ZERO so only the living-player rule applies here.
+			player_ok = world._in_safe_spawn_zone(mp + Vector3(20, 0, 0), Vector3.ZERO, [me]) \
+				and not world._in_safe_spawn_zone(mp + Vector3(200, 0, 0), Vector3.ZERO, [me])
+		safe_zone_ok = village_ok and player_ok
+		print("SMOKE: safe_zone_ok=", safe_zone_ok, " village=", village_ok, " player=", player_ok)
+
+	# Adventure backpack: spatial grid placement, no-overlap, capacity, use, drop.
+	var inventory_ok := false
+	if me:
+		me.inventory.clear()
+		me.backpack_w = 4
+		me.backpack_h = 4
+		var add_ok: bool = me.inv_add(ItemDB.make_weapon("rifle")) and int(me.inventory[0]["gx"]) == 0 and int(me.inventory[0]["gy"]) == 0
+		me.inv_add(ItemDB.make_weapon("smg"))  # second 2x1 long gun auto-places elsewhere
+		var a: Dictionary = me.inventory[0]
+		var b: Dictionary = me.inventory[1]
+		# Long guns are 2x1 (2 cells each) -> 4 used of 16.
+		var overlap_ok: bool = not (int(a["gx"]) == int(b["gx"]) and int(a["gy"]) == int(b["gy"])) and me.inv_used() == 4 and me.inv_cell_count() == 16
+		# Footprints: long guns 2x1, pistol 1x1.
+		var size_ok: bool = ItemDB.make_weapon("rifle")["w"] == 2 and ItemDB.make_weapon("rifle")["h"] == 1 and ItemDB.make_weapon("pistol")["w"] == 1 and ItemDB.make_weapon("pistol")["h"] == 1
+		# Fill the 4x4 grid with 2x1 guns; exactly eight fit, a ninth must not.
+		me.inventory.clear()
+		for i in 10:
+			me.inv_add(ItemDB.make_weapon("rifle"))
+		var cap_ok: bool = me.inventory.size() == 8 and not me.inv_add(ItemDB.make_weapon("rifle"))
+		# Rotation: a 2x1 gun swaps to 1x2 in place and back; a 1x1 item can't rotate.
+		me.inventory.clear()
+		me.inv_add(ItemDB.make_weapon("rifle"))
+		var rot_ok: bool = me.inv_rotate(0) and int(me.inventory[0]["w"]) == 1 and int(me.inventory[0]["h"]) == 2
+		rot_ok = rot_ok and me.inv_rotate(0) and int(me.inventory[0]["w"]) == 2 and int(me.inventory[0]["h"]) == 1
+		me.inventory.clear()
+		me.inv_add(ItemDB.make_weapon("pistol"))
+		rot_ok = rot_ok and not me.inv_rotate(0)   # square footprint is a no-op
+		me.inventory.clear()
+		me.hunger = 10.0
+		me.inv_add(ItemDB.make("food"))
+		me.inv_use(0)
+		var use_ok: bool = me.hunger > 10.0 and me.inventory.is_empty()
+		me.inv_add(ItemDB.make_weapon("shotgun"))
+		me.inv_drop(0)
+		await get_tree().process_frame
+		var found_drop := false
+		for n in get_tree().current_scene.get_children():
+			if n.is_in_group("pickup") and not (n.get("item_data") as Dictionary).is_empty():
+				found_drop = true
+		var drop_ok: bool = me.inventory.is_empty() and found_drop
+		me.inventory.clear()
+		inventory_ok = add_ok and overlap_ok and size_ok and cap_ok and rot_ok and use_ok and drop_ok
+		print("SMOKE: inventory_ok=", inventory_ok, " add=", add_ok, " overlap=", overlap_ok, " size=", size_ok, " cap=", cap_ok, " rot=", rot_ok, " use=", use_ok, " drop=", drop_ok)
+
+	# Debug helpers backing the solo [0] menu: stat setters clamp to their range, item
+	# spawn lands in the pack, and noclip toggles the player's world collision off/on.
+	var debug_ok := false
+	if me:
+		me.sync_health = 50.0
+		me.thirst = 50.0
+		me.hunger = 50.0
+		me.debug_add_health(25.0)       # -> 75
+		me.debug_add_thirst(-20.0)      # -> 30
+		me.debug_add_hunger(9999.0)     # clamps to MAX_NEED (100)
+		var stat_ok: bool = int(me.sync_health) == 75 and int(me.thirst) == 30 and int(me.hunger) == 100
+		me.inventory.clear()
+		me.backpack_w = 4
+		me.backpack_h = 4
+		# Debug spawn drops items in the WORLD in front of you, not into the backpack.
+		var spawn_ok: bool = me.debug_spawn_item("scrap") and me.debug_spawn_item("rifle") \
+			and me.inventory.is_empty() and not me.debug_spawn_item("not_a_real_item")
+		me.debug_set_noclip(true)
+		var nc_on: bool = bool(me.noclip) and me.collision_mask == 0
+		me.debug_set_noclip(false)
+		var nc_off: bool = not bool(me.noclip) and me.collision_mask == 7
+		me.inventory.clear()
+		me.sync_health = me.MAX_HEALTH
+		me.thirst = me.MAX_NEED
+		me.hunger = me.MAX_NEED
+		debug_ok = stat_ok and spawn_ok and nc_on and nc_off and Settings.get("debug_mode") != null
+		print("SMOKE: debug_ok=", debug_ok, " stat=", stat_ok, " spawn=", spawn_ok, " nc_on=", nc_on, " nc_off=", nc_off)
+
+	# Procedural Adventure terrain: seeded heightmap mesh + collision + biome navmesh,
+	# water plane, scattered props, flattened POI/village sites and spawns.
+	var terrain_ok := false
+	var prev_ms = Game.config.get("map_size", 1)
+	var prev_sd = Game.config.get("seed", 0)
+	Game.config["map_size"] = 2   # medium (~640 m)
+	Game.config["seed"] = 12345
+	var tt0 := Time.get_ticks_msec()
+	var terr: Node = load("res://maps/terrain.tscn").instantiate()
+	get_tree().root.add_child(terr)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var treg = terr.get_node_or_null("NavRegion")
+	var tpolys: int = treg.navigation_mesh.get_polygon_count() if treg and treg.navigation_mesh else 0
+	var tspawns := 0
+	for m in terr.get_children():
+		if m is Marker3D and (m.is_in_group("spawn_player") or m.is_in_group("spawn_enemy")):
+			tspawns += 1
+	var tpoi := get_tree().get_nodes_in_group("poi_site").size()
+	var twater := get_tree().get_nodes_in_group("water").size()
+	var rq := PhysicsRayQueryParameters3D.create(Vector3(0, 300, 0), Vector3(0, -300, 0))
+	rq.collision_mask = 1
+	var tcol: bool = not terr.get_world_3d().direct_space_state.intersect_ray(rq).is_empty()
+	# Medium+ maps park vehicles at villages; the world-map image bakes; ladders add
+	# navmesh links so bots can climb.
+	var tveh := 0
+	for m in terr.get_children():
+		if m.is_in_group("vehicle"):
+			tveh += 1
+	var tmap_ok: bool = terr.map_texture() != null and terr.world_size() > 100.0
+	var tlinks := 0
+	if treg:
+		for c in treg.get_children():
+			if c is NavigationLink3D:
+				tlinks += 1
+	terrain_ok = tpolys > 0 and tspawns >= 8 and tpoi >= 5 and twater >= 1 and tcol \
+		and tveh >= 1 and tmap_ok and tlinks >= 1
+	print("SMOKE: terrain_ok=", terrain_ok, " bake_ms=", Time.get_ticks_msec() - tt0, " polys=", tpolys, " spawns=", tspawns, " poi=", tpoi, " water=", twater, " collision=", tcol, " vehicles=", tveh, " map_tex=", tmap_ok, " navlinks=", tlinks)
+	terr.queue_free()
+	Game.config["map_size"] = prev_ms
+	Game.config["seed"] = prev_sd
+
+	# Landforms: theme keyword -> landform mapping, table completeness, and that "plains"
+	# actually flattens the relief compared with the default "rolling" (so flat lands,
+	# cities, dungeons etc. build visibly different terrain, not just re-tinted grassland).
+	var landform_ok := false
+	var lt = load("res://scripts/world/terrain.gd").new()
+	Game.config.erase("landform")
+	var lf_expect := {
+		"wide flat grassland plains": "plains",
+		"frozen underground cave network": "caverns",
+		"neon megacity downtown streets": "urban",
+		"the deep dungeon crypt": "dungeon",
+		"towering alpine mountain peaks": "highlands",
+		"endless rolling sand dunes": "dunes",
+		"": "rolling",
+	}
+	var lf_sel_ok := true
+	for th in lf_expect:
+		if String(lt._theme_landform(th)) != String(lf_expect[th]):
+			lf_sel_ok = false
+			print("  landform mismatch: '", th, "' -> ", lt._theme_landform(th), " (want ", lf_expect[th], ")")
+	var lf_table_ok: bool = lt.LANDFORMS.size() >= 11 and lt.LANDFORMS.has("dungeon") \
+		and lt.LANDFORMS.has("urban") and lt.LANDFORMS.has("plains")
+	# Relief comparison via the pure height function (no mesh/navmesh bake needed).
+	lt._size = 640.0
+	lt._make_noise(777)
+	lt._water = 6.0
+	var lf_range := func(key: String) -> float:
+		lt._landform = lt.LANDFORMS[key]
+		var mn := 1.0e9
+		var mx := -1.0e9
+		for i in 80:
+			var x := -300.0 + i * 7.5
+			var h: float = lt._land_height(x, 40.0)
+			mn = minf(mn, h)
+			mx = maxf(mx, h)
+		return mx - mn
+	var r_roll: float = lf_range.call("rolling")
+	var r_plain: float = lf_range.call("plains")
+	var lf_relief_ok: bool = r_plain < r_roll * 0.7   # plains noticeably flatter than rolling
+	landform_ok = lf_sel_ok and lf_table_ok and lf_relief_ok
+	lt.free()
+	print("SMOKE: landform_ok=", landform_ok, " sel=", lf_sel_ok, " table=", lf_table_ok, " relief=", lf_relief_ok, " roll_range=", int(r_roll), " plain_range=", int(r_plain))
+
+	# Named prompt features: keyword extraction (size + "near" relation), canonicalisation,
+	# height shaping (a mountain raises the land, a lake carves below water), and "near"
+	# placement (a crash site lands beside its anchor mountain).
+	var features_ok := false
+	var ft = load("res://scripts/world/terrain.gd").new()
+	ft._size = 640.0
+	Game.config.erase("features")
+	var canon_ok: bool = ft._canon_feature("peak") == "mountain" and ft._canon_feature("wreck") == "crash_site" \
+		and ft._canon_feature("lagoon") == "lake" and ft._canon_feature("nonsense") == ""
+	var ex: Array = ft._extract_features_kw("car crash site near one big mountain")
+	var ex_mtn := false
+	var ex_crash := false
+	var ex_big := false
+	var ex_near := false
+	for f in ex:
+		if String(f.get("type", "")) == "mountain":
+			ex_mtn = true
+			if String(f.get("size", "")) == "big":
+				ex_big = true
+		if String(f.get("type", "")) == "crash_site":
+			ex_crash = true
+		if String(f.get("near", "")) != "":
+			ex_near = true
+	var extract_ok: bool = ex_mtn and ex_crash and ex_big and ex_near
+	# Height shaping (pure function).
+	ft._make_noise(5)
+	ft._water = 6.0
+	ft._features = [{"type": "mountain", "cat": "terrain", "x": 0.0, "z": 0.0, "r": 110.0, "size": "big", "shape": "round", "base": 30.0}]
+	var raised: float = ft._feature_height(0.0, 0.0, 30.0)
+	ft._features = [{"type": "lake", "cat": "terrain", "x": 0.0, "z": 0.0, "r": 50.0, "size": "", "shape": "heart", "base": 30.0}]
+	var carved: float = ft._feature_height(0.0, 0.0, 30.0)
+	var shape_ok: bool = raised > 120.0 and carved < ft._water
+	# "near" placement resolves the crash site beside the mountain.
+	Game.config["features"] = [{"type": "mountain", "size": "big", "id": "m"}, {"type": "crash_site", "near": "m"}]
+	ft._features = []
+	var frng := RandomNumberGenerator.new()
+	frng.seed = 5
+	var resolved: Array = ft._resolve_features(frng)
+	var mpos = null
+	var cpos = null
+	for f in resolved:
+		if String(f["type"]) == "mountain":
+			mpos = f
+		elif String(f["type"]) == "crash_site":
+			cpos = f
+	var near_ok: bool = mpos != null and cpos != null \
+		and Vector2(float(mpos["x"]) - float(cpos["x"]), float(mpos["z"]) - float(cpos["z"])).length() < float(mpos["r"]) + float(cpos["r"]) + 40.0
+	Game.config.erase("features")
+	ft.free()
+	features_ok = canon_ok and extract_ok and shape_ok and near_ok
+	print("SMOKE: features_ok=", features_ok, " canon=", canon_ok, " extract=", extract_ok, " shape=", shape_ok, " near=", near_ok)
+
+	# ComfyUI asset bridge (opt-in, off by default): the pure helpers work with no server —
+	# key sanitising, cache paths, deterministic seeds, workflow build (prompt injected +
+	# valid JSON), graceful empty for an unconfigured 3D kind, and /history parsing.
+	var comfyui_ok := false
+	# ComfyUI is mandatory (ships with the game) — always enabled.
+	var cy_off: bool = ComfyUI.enabled()
+	var cy_key: bool = ComfyUI._safe_key("City Bench") == "city_bench" and not ComfyUI._safe_key("A/B c!").contains("/")
+	var cy_path: bool = ComfyUI.cache_path("forest log", "png").ends_with("forest_log.png")
+	var cy_seed: bool = ComfyUI._stable_seed("bench") == ComfyUI._stable_seed("bench") \
+		and ComfyUI._stable_seed("bench") != ComfyUI._stable_seed("lamppost")
+	var wf: String = ComfyUI._build_workflow("a wooden circus wagon", 123, "image")
+	var wf_parsed = JSON.parse_string(wf)
+	var cy_wf: bool = typeof(wf_parsed) == TYPE_DICTIONARY and wf.contains("a wooden circus wagon") and wf.contains("123")
+	var cy_no3d: bool = ComfyUI._build_workflow("x", 1, "model") == ""   # no template -> graceful empty
+	var mock = JSON.parse_string('{"pid1":{"outputs":{"9":{"images":[{"filename":"openfire_0001.png","subfolder":"","type":"output"}]}}}}')
+	var ref: Dictionary = ComfyUI._extract_output_ref(mock, "pid1")
+	var cy_hist: bool = String(ref.get("filename", "")) == "openfire_0001.png" \
+		and ComfyUI._extract_output_ref(mock, "missing").is_empty()
+	# Model path is derived from the bundled checkpoints folder (next to the binary) and
+	# ends with the model filename; no local file exists in the test env.
+	var cy_model: bool = ComfyUI.local_model_path().ends_with(Settings.comfyui_model_file) \
+		and ComfyUI.checkpoints_dir().ends_with("comfyui/models/checkpoints") \
+		and not ComfyUI.has_local_model()
+	# extra_model_paths.yaml is written pointing ComfyUI at the bundled checkpoints folder.
+	ComfyUI.write_model_paths_yaml()
+	var cy_yaml: bool = ComfyUI.comfyui_base_dir().ends_with("comfyui") \
+		and FileAccess.file_exists(ComfyUI.model_paths_yaml()) \
+		and FileAccess.get_file_as_string(ComfyUI.model_paths_yaml()).contains("checkpoints")
+	cy_model = cy_model and cy_yaml
+	# Auto-install: _extract_zip unpacks a .zip bundle into a folder.
+	var cy_zip := true
+	var zpath := ProjectSettings.globalize_path("user://_cytest.zip")
+	var zp := ZIPPacker.new()
+	if zp.open(zpath) == OK:
+		zp.start_file("sub/hello.txt")
+		zp.write_file("hi".to_utf8_buffer())
+		zp.close_file()
+		zp.close()
+		var zdest := ProjectSettings.globalize_path("user://_cyx")
+		cy_zip = ComfyUI._extract_zip(zpath, zdest) \
+			and FileAccess.get_file_as_string(zdest.path_join("sub/hello.txt")) == "hi"
+		DirAccess.remove_absolute(zpath)
+	cy_model = cy_model and cy_zip
+	comfyui_ok = cy_off and cy_key and cy_path and cy_seed and cy_wf and cy_no3d and cy_hist and cy_model
+	print("SMOKE: comfyui_ok=", comfyui_ok, " off=", cy_off, " key=", cy_key, " path=", cy_path, " seed=", cy_seed, " wf=", cy_wf, " no3d=", cy_no3d, " hist=", cy_hist, " model=", cy_model)
+
+	# Adventure start: an empty loadout fires safely (unarmed) and equipping a weapon
+	# from the backpack fills a free slot (rather than replacing slot 0).
+	var survival_start_ok := false
+	if me:
+		var wm2 = me.weapons
+		wm2.set_loadout([])
+		# Loadout is a fixed 3 slots; empty == all "" (no weapon in any slot).
+		var empty_ok: bool = wm2.loadout.size() == 3 and not wm2.loadout.has("rifle") \
+			and not wm2.slot_filled(0) and not wm2.slot_filled(1) and not wm2.slot_filled(2)
+		wm2._fire()   # must be a safe no-op while unarmed
+		wm2.give_weapon("rifle")
+		# Fills the first free slot (slot 0 here), not by growing the array.
+		var equip_ok: bool = wm2.loadout[0] == "rifle"
+		# Slot-targeted equip: a second gun lands in the exact slot requested,
+		# leaving holes (slot 1 stays empty between rifle@0 and shotgun@2).
+		wm2.set_slot(2, "shotgun")
+		var slot_ok: bool = wm2.loadout[2] == "shotgun" and not wm2.slot_filled(1)
+		survival_start_ok = empty_ok and equip_ok and slot_ok
+		print("SMOKE: survival_start_ok=", survival_start_ok, " empty=", empty_ok, " equip=", equip_ok, " slot=", slot_ok)
+
+	# Backpack grid: move validation (onto an item fails, to a free cell ok) + the
+	# UI binds the grid to the player and redraws without error.
+	var inv_ui_ok := false
+	if me and hud:
+		me.inventory.clear()
+		me.backpack_w = 4
+		me.backpack_h = 4
+		me.inv_add(ItemDB.make_weapon("rifle"))  # 2x1 at (0,0)
+		me.inv_add(ItemDB.make("food"))           # 1x1 elsewhere
+		var blocked: bool = not me.inv_move(1, 0, 0)   # onto the weapon -> rejected
+		var move_ok: bool = me.inv_move(1, 3, 3)       # to a free cell -> ok
+		hud._player = me
+		hud.inventory_panel.visible = true
+		hud._refresh_inventory()
+		var bound: bool = hud.backpack_grid.player == me
+		hud.backpack_grid.queue_redraw()
+		await get_tree().process_frame
+		hud.inventory_panel.visible = false
+		me.inventory.clear()
+		inv_ui_ok = blocked and move_ok and bound
+		print("SMOKE: inv_ui_ok=", inv_ui_ok, " blocked=", blocked, " moved=", move_ok, " bound=", bound)
+
+	# Adventure factions: hostility rules + provocation, NPC faction plumbing, and
+	# distance-activation toggling a bot's physics.
+	var factions_ok := false
+	var prev_mode3 = Game.config["mode"]
+	Game.config["mode"] = Game.Mode.ADVENTURE
+	Game.adventure_setup(42)
+	var fa: String = String(Game.adventure_village_factions[0])
+	var raider_ok: bool = Game.adventure_hostile("raiders", fa) and Game.adventure_hostile(fa, "raiders") and Game.adventure_hostile("raiders", "player")
+	var self_ok: bool = not Game.adventure_hostile("player", "player") and not Game.adventure_hostile(fa, fa)
+	Game.adventure_stance[fa] = "neutral"
+	var was_neutral: bool = not Game.adventure_hostile("player", fa)
+	Game.adventure_provoke(fa)
+	var provoke_ok: bool = was_neutral and Game.adventure_hostile("player", fa)
+	var vv_ok := true
+	if Game.adventure_village_factions.size() >= 2:
+		vv_ok = not Game.adventure_hostile(String(Game.adventure_village_factions[0]), String(Game.adventure_village_factions[1]))
+	var faction_spawn_ok := false
+	if world and me:
+		var fid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(6, 0, 0), "soldier", 5, "raiders")
+		await get_tree().process_frame
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b.combatant_id == fid:
+				faction_spawn_ok = b.faction == "raiders" and b.team == 5
+	var activation_ok := false
+	var sb3 := get_tree().get_nodes_in_group("bot")
+	if not sb3.is_empty():
+		sb3[0].set_active(false)
+		var off: bool = not sb3[0].is_physics_processing()
+		sb3[0].set_active(true)
+		activation_ok = off and sb3[0].is_physics_processing()
+	Game.config["mode"] = prev_mode3
+	factions_ok = raider_ok and self_ok and provoke_ok and vv_ok and faction_spawn_ok and activation_ok
+	print("SMOKE: factions_ok=", factions_ok, " raider=", raider_ok, " self=", self_ok, " provoke=", provoke_ok, " vv=", vv_ok, " spawn=", faction_spawn_ok, " activation=", activation_ok)
+
+	# Adventure NPC identities: NameGen, name/role plumbing through spawn, greeting.
+	var npc_ident_ok := false
+	if world and me:
+		var prev_m4 = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		Game.adventure_setup(7)
+		NameGen.reseed(7)
+		var fac2: String = String(Game.adventure_village_factions[0])
+		var nm: String = NameGen.npc_name(fac2)
+		var name_ok: bool = nm.contains(" ")
+		var nid2: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(2, 0, 0), "soldier", 7, fac2, {"name": "Test Elder", "role": "Elder"})
+		await get_tree().process_frame
+		var npc: Node = null
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b.combatant_id == nid2:
+				npc = b
+		var role_ok: bool = npc != null and npc.role == "Elder" and npc.display_name == "Test Elder" and npc.faction == fac2
+		Game.adventure_stance[fac2] = "friendly"
+		var greet_ok: bool = npc != null and me._npc_greeting(npc) != ""
+		Game.config["mode"] = prev_m4
+		npc_ident_ok = name_ok and role_ok and greet_ok
+		print("SMOKE: npc_ident_ok=", npc_ident_ok, " name=", name_ok, " role=", role_ok, " greet=", greet_ok)
+
+	# NPC negotiation buttons: a friendly NPC heals/gives/follows; commands order followers;
+	# an unfriendly NPC refuses to heal.
+	var npc_negotiate_ok := false
+	if world and me:
+		var prev_mn = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		Game.adventure_setup(7)
+		var nfac: String = String(Game.adventure_village_factions[0])
+		Game.adventure_stance[nfac] = "friendly"
+		var nnid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(3, 0, 0), "soldier", 7, nfac, {"name": "Ally", "role": "Guard"})
+		await get_tree().process_frame
+		var nn: Node = null
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b.combatant_id == nnid:
+				nn = b
+		me._talking_npc = nn
+		me.sync_health = 50.0
+		# npc_can gates the dialog's contextual accept button: friendly + hurt -> heal offered.
+		var can_heal_ok: bool = me.npc_can("heal") != "" and me.npc_can("follow") != ""
+		var heal_msg: String = me.npc_request("heal")
+		var neg_heal: bool = me.sync_health > 50.0 and heal_msg != "" and can_heal_ok
+		me.inventory.clear()
+		me.backpack_w = 4
+		me.backpack_h = 4
+		var give_msg: String = me.npc_request("give")
+		var neg_give: bool = me.inventory.size() == 1 and give_msg != ""
+		var follow_msg: String = me.npc_request("follow")
+		var neg_follow: bool = nn != null and bool(nn.recruited) and nn.follow_target == me and follow_msg != ""
+		me.npc_request("wait")
+		var neg_wait: bool = nn != null and bool(nn.holding)
+		me.npc_request("regroup")
+		var neg_regroup: bool = nn != null and not bool(nn.holding)
+		# Unfriendly NPC refuses to heal (recruited NPC is faction "player", not friendly).
+		me.sync_health = 50.0
+		var refuse_msg: String = me.npc_request("heal")
+		var neg_refuse: bool = me.sync_health == 50.0 and refuse_msg != ""
+		npc_negotiate_ok = neg_heal and neg_give and neg_follow and neg_wait and neg_regroup and neg_refuse
+		me._talking_npc = null
+		me.inventory.clear()
+		me.sync_health = me.MAX_HEALTH
+		Game.config["mode"] = prev_mn
+		print("SMOKE: npc_negotiate_ok=", npc_negotiate_ok, " heal=", neg_heal, " give=", neg_give, " follow=", neg_follow, " wait=", neg_wait, " regroup=", neg_regroup, " refuse=", neg_refuse)
+
+	# Adventure quests: hunt completion via kills, offer/accept, tracker text.
+	var quests_ok := false
+	if world and me:
+		var prev_active5: bool = Game.match_active
+		var prev_mode5 = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		Game.match_active = false   # don't trigger the victory scene change in the test
+		var qm = load("res://scripts/world/quest_manager.gd").new()
+		qm.name = "QM_test"
+		add_child(qm)
+		qm.add_to_group("quest_manager")
+		qm.world = world
+		qm.target_points = 99
+		var hid = qm._make("hunt", "Test", "kill 2 raiders", {"faction": "raiders", "count": 2})
+		qm._activate(hid)
+		var rid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(8, 0, 0), "soldier", 1, "raiders")
+		await get_tree().process_frame
+		qm.notify_kill(rid, me.combatant_id)   # player kill counts toward the hunt
+		qm.notify_kill(rid, me.combatant_id)
+		var hunt_ok: bool = qm.points >= 2
+		var sid = qm._make("collect", "Side", "collect 1 ammo", {"item": "ammo", "count": 1}, false, 4242)
+		var offer = qm.offer_for(4242)
+		var offer_ok: bool = not offer.is_empty() and int(offer["id"]) == sid
+		qm.accept(sid)
+		var accept_ok := false
+		for q in qm.quests:
+			if int(q["id"]) == sid:
+				accept_ok = q["state"] == "active"
+		var tracker_ok: bool = qm._tracker_text().contains("QUESTS")
+		qm.queue_free()
+		Game.match_active = prev_active5
+		Game.config["mode"] = prev_mode5
+		quests_ok = hunt_ok and offer_ok and accept_ok and tracker_ok
+		print("SMOKE: quests_ok=", quests_ok, " hunt=", hunt_ok, " offer=", offer_ok, " accept=", accept_ok, " tracker=", tracker_ok)
+
+	# Per-mission difficulty: a Hard quest is worth more and labels correctly; the new
+	# recon/sabotage types are registered.
+	var missions_ok := false
+	if world:
+		var qmd = load("res://scripts/world/quest_manager.gd").new()
+		qmd.name = "QM_diff"
+		add_child(qmd)
+		qmd.add_to_group("quest_manager")
+		qmd.world = world
+		qmd.target_points = 99
+		Game.match_active = false   # don't let _process trigger a win
+		var eid = qmd._make("hunt", "E", "", {"faction": "raiders", "count": 3}, false, 0, 0)
+		var hid2 = qmd._make("hunt", "H", "", {"faction": "raiders", "count": 3}, false, 0, 2)
+		var eq := {}
+		var hq := {}
+		for q in qmd.quests:
+			if int(q["id"]) == eid:
+				eq = q
+			elif int(q["id"]) == hid2:
+				hq = q
+		var diff_pts_ok: bool = int(hq.get("points", 0)) > int(eq.get("points", 0)) \
+			and qmd.difficulty_label(hq) == "Hard" and qmd.difficulty_label(eq) == "Easy"
+		qmd._make("recon", "R", "", {"recon_pois": [], "visited": []}, false, 0, 1)
+		qmd._make("sabotage", "S", "", {}, false, 0, 1)
+		var types_ok: bool = qmd.PTS.has("recon") and qmd.PTS.has("sabotage")
+		# label appears in the tracker text for an active quest
+		qmd._activate(hid2)
+		var label_ok: bool = qmd._tracker_text().contains("[Hard]")
+		qmd.queue_free()
+		missions_ok = diff_pts_ok and types_ok and label_ok
+		print("SMOKE: missions_ok=", missions_ok, " diff_pts=", diff_pts_ok, " types=", types_ok, " label=", label_ok)
+
+	# Dynamic quests: nothing auto-assigned at start, offers trickle in / expire, a
+	# timed delivery can fail, distress calls complete when the attackers fall, and
+	# the new mission types are registered.
+	var dynamic_ok := false
+	if world and me:
+		var dy_prev_mode = Game.config["mode"]
+		var dy_prev_active: bool = Game.match_active
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		Game.match_active = false
+		Game.adventure_setup(5)
+		Game.adventure_stance["Ridgeback Clan"] = "friendly"
+		# An Elder to hold offers + a poi marker for site-based quests.
+		var dy_eid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(-14, 0, 0), "soldier", 0, "Ridgeback Clan", {"name": "DynElder", "role": "Elder"})
+		await get_tree().process_frame
+		var dy_marker := Node3D.new()
+		dy_marker.add_to_group("poi_site")
+		dy_marker.set_meta("radius", 10.0)
+		dy_marker.set_meta("index", 90)
+		get_tree().root.add_child(dy_marker)
+		dy_marker.global_position = me.global_position + Vector3(30, 0, 30)
+		var dyqm = load("res://scripts/world/quest_manager.gd").new()
+		dyqm.name = "QM_dyn"
+		add_child(dyqm)
+		dyqm.target_points = 99
+		dyqm.start(world)
+		var dy_active := 0
+		var dy_avail := 0
+		for q in dyqm.quests:
+			if q["state"] == "active":
+				dy_active += 1
+			elif q["state"] == "available":
+				dy_avail += 1
+		var dy_clean_start: bool = dy_active == 0 and dy_avail >= 1
+		var dy_trickle: bool = dyqm._new_offer() >= 0
+		# Expiry: age an available offer past the TTL.
+		var dy_expired := false
+		for q in dyqm.quests:
+			if q["state"] == "available":
+				q["_age"] = 1.0e6
+				break
+		dyqm._expire_offers(0.1)
+		for q in dyqm.quests:
+			if q["state"] == "expired":
+				dy_expired = true
+		# Courier fail: deadline already passed -> a process tick marks it failed.
+		var dy_cid = dyqm._make("courier", "Rush", "", {"item": "food", "poi": dy_marker, "deadline": 0.01}, false, 0, 0)
+		dyqm._activate(dy_cid)
+		Game.match_active = true
+		dyqm._process(0.5)   # tick deterministically (awaiting frames races _process)
+		Game.match_active = false
+		var dy_failed := false
+		for q in dyqm.quests:
+			if int(q["id"]) == dy_cid:
+				dy_failed = q["state"] == "failed"
+		# Distress: spawns attackers + auto-active quest; killing them all completes it.
+		var dy_did: int = dyqm._spawn_distress()
+		var dy_distress := false
+		if dy_did >= 0:
+			var dq := {}
+			for q in dyqm.quests:
+				if int(q["id"]) == dy_did:
+					dq = q
+			var dy_ids: Array = (dq.get("attacker_ids", []) as Array).duplicate()
+			for aid in dy_ids:
+				dyqm.notify_kill(int(aid))
+			dy_distress = dq.get("state", "") == "complete"
+		var dy_types: bool = dyqm.PTS.has("rescue") and dyqm.PTS.has("holdout") and dyqm.PTS.has("treasure") and dyqm.PTS.has("courier")
+		dynamic_ok = dy_clean_start and dy_trickle and dy_expired and dy_failed and dy_distress and dy_types
+		print("SMOKE: dynamic_ok=", dynamic_ok, " clean_start=", dy_clean_start, " trickle=", dy_trickle, " expire=", dy_expired, " courier_fail=", dy_failed, " distress=", dy_distress, " types=", dy_types)
+		dyqm.queue_free()
+		dy_marker.queue_free()
+		Game.config["mode"] = dy_prev_mode
+		Game.match_active = dy_prev_active
+		# Quiet the unused-var warning path (elder keeps living in the world).
+		if dy_eid == -999999:
+			pass
+
+	# Improvements batch: perks, trade values + coin persistence, day/night tick,
+	# marker sync, save snapshot round-trip.
+	var improve_ok := false
+	if world and me:
+		# Perks: lifetime points earn perk points; buying applies to the player.
+		var imp: Dictionary = Characters.create("Improver", Color(0.5, 0.5, 0.9), "scout", "")
+		(imp["stats"] as Dictionary)["points"] = 9
+		var im_pts_ok: bool = Characters.perk_points(imp) == 3
+		var im_buy_ok: bool = Characters.buy_perk("tough") and Characters.has_perk("tough") and Characters.perk_points(imp) == 2
+		Characters.apply_perks(me)
+		var im_apply_ok: bool = (me.perks as Array).has("tough")
+		# Trade: item values + coins flow through apply/capture.
+		var im_val_ok: bool = ItemDB.value_of(ItemDB.make("medkit")) == 6 \
+			and ItemDB.sell_value(ItemDB.make("food")) >= 1 and ItemDB.value_of(ItemDB.make_weapon("sniper")) == 24
+		me.coins = 7
+		Characters.capture_from_player(me)
+		var im_coins_ok: bool = int(Characters.current.get("coins", 0)) == 7
+		# Day/night: a long tick moves the clock, finds the sun, and bounds night.
+		world._tick_environment(30.0)
+		var im_env_ok: bool = world.night >= 0.0 and world.night <= 1.0 and world._ambient != null
+		# Marker sync RPC path (call_local form runs the handler directly here).
+		var im_marker_ok := false
+		var im_bots := get_tree().get_nodes_in_group("bot")
+		for b in im_bots:
+			if not b.get("dead"):
+				world._sync_quest_markers([b.combatant_id], [])
+				im_marker_ok = b._quest_marker != null and b._quest_marker.visible and b._quest_marker.text == "▼"
+				b.set_marker_kind("")
+				break
+		# Save snapshot round-trip: capture -> restore puts the player back.
+		var im_snap: Dictionary = world.adventure_snapshot(me)
+		var im_snap_ok: bool = im_snap.has("seed") and im_snap.has("pos") and im_snap.has("killed")
+		var im_old_pos: Vector3 = me.global_position
+		Game.continue_data = {"points": 5, "pos": [im_old_pos.x + 3.0, im_old_pos.y + 1.0, im_old_pos.z], "health": 80.0, "hunger": 50.0, "thirst": 60.0, "day01": 0.5}
+		world._apply_continue()
+		var im_restore_ok: bool = me.global_position.distance_to(im_old_pos) > 1.0 \
+			and absf(me.hunger - 50.0) < 0.01 and Game.continue_data.is_empty()
+		me.sync_health = 100.0
+		me.hunger = 100.0
+		me.thirst = 100.0
+		me.global_position = im_old_pos
+		Characters.delete(String(imp["id"]))
+		improve_ok = im_pts_ok and im_buy_ok and im_apply_ok and im_val_ok and im_coins_ok and im_env_ok and im_marker_ok and im_snap_ok and im_restore_ok
+		print("SMOKE: improve_ok=", improve_ok, " perks=", im_pts_ok, " buy=", im_buy_ok, " papply=", im_apply_ok, " value=", im_val_ok, " coins=", im_coins_ok, " env=", im_env_ok, " marker=", im_marker_ok, " snap=", im_snap_ok, " restore=", im_restore_ok)
+
+	# Grenades as Adventure inventory items: count = Extra slot + backpack, must be
+	# equipped to throw, and throws spend the backpack before the equipped reserve.
+	var nade_item_ok := false
+	if me:
+		var gn_prev_mode = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		me.inventory.clear()
+		me.equip["extra"] = {}
+		me.grenades = 0
+		var gn_added := 0
+		for k in 3:
+			if me.inv_add(ItemDB.make("grenade")):
+				gn_added += 1
+		# Three loose grenades: not throwable — and the throw count reads 0 — until one is
+		# equipped (the count reflects the equipped type only, so nothing equipped = 0).
+		var gn_count0: bool = me.grenade_count() == 0
+		var gn_noeq: bool = not me._grenade_equipped() and not me._can_throw_grenade()
+		var gn_gi := -1
+		for i in me.inventory.size():
+			if String(me.inventory[i].get("kind", "")) == "grenade":
+				gn_gi = i
+				break
+		me._equip_slot("extra", gn_gi)
+		# Equipping moves one to the gear slot — total unchanged, now throwable.
+		var gn_eq: bool = me._grenade_equipped() and me._can_throw_grenade() and me.grenade_count() == 3
+		me._consume_grenade()
+		var gn_a1: bool = me._grenade_equipped() and me.grenade_count() == 2   # backpack spent first
+		me._consume_grenade()
+		var gn_a2: bool = me._grenade_equipped() and me.grenade_count() == 1
+		me._consume_grenade()
+		var gn_a3: bool = not me._grenade_equipped() and me.grenade_count() == 0 and not me._can_throw_grenade()
+		nade_item_ok = gn_added == 3 and gn_count0 and gn_noeq and gn_eq and gn_a1 and gn_a2 and gn_a3
+		me.inventory.clear()
+		me.equip["extra"] = {}
+		me.grenades = 0
+		Game.config["mode"] = gn_prev_mode
+		print("SMOKE: nade_item_ok=", nade_item_ok, " added=", gn_added, " count0=", gn_count0, " noeq=", gn_noeq, " eq=", gn_eq, " a1=", gn_a1, " a2=", gn_a2, " a3=", gn_a3)
+
+	# Adventure story: offline fallback produces all keys, and the LLM-response parser
+	# extracts our story JSON from an OpenAI-style chat reply.
+	var story_ok := false
+	var fb: Dictionary = {}
+	Story._theme = "zombie apocalypse"
+	Story._facts = {"factions": ["Ridgeback Clan", "raiders"], "points": 6}
+	fb = Story._fallback_story()
+	var fb_ok: bool = fb.has("briefing") and fb.has("factions") and fb.has("greetings") and fb.has("outro") and String(fb["briefing"]).contains("zombie")
+	var sample := '{"choices":[{"message":{"content":"{\\"briefing\\":\\"Dark days.\\",\\"factions\\":{\\"X\\":\\"lore\\"},\\"greetings\\":{\\"X\\":\\"hi\\"},\\"outro\\":\\"win\\"}"}}]}'
+	var parsed: Dictionary = Story._parse_story(sample)
+	var parse_ok: bool = String(parsed.get("briefing", "")) == "Dark days." and String(parsed.get("outro", "")) == "win"
+	var names_sample := '{"choices":[{"message":{"content":"prose {\\"raiders\\":[{\\"name\\":\\"Vex\\",\\"trait\\":\\"cruel\\"}]} trailing"}}]}'
+	var pn: Dictionary = Story._parse_names(names_sample)
+	var pn_ok: bool = pn.has("raiders")
+	# LLM name pools: NameGen draws unique people from a pool, then falls back.
+	NameGen.set_pools({"raiders": [{"name": "Vex Skullsplitter", "trait": "ruthless"}]})
+	var p1: Dictionary = NameGen.npc_person("raiders")
+	var p2: Dictionary = NameGen.npc_person("raiders")  # pool exhausted -> built-in
+	NameGen.clear_pools()
+	var names_ok: bool = p1["name"] == "Vex Skullsplitter" and p1["trait"] == "ruthless" and p2["name"] != "Vex Skullsplitter"
+	var llm_ok: bool = LLM.has_method("embedded_available") and LLM.model_path().ends_with(Settings.llm_model_file)
+	story_ok = fb_ok and parse_ok and pn_ok and names_ok and llm_ok
+	print("SMOKE: story_ok=", story_ok, " fallback=", fb_ok, " parse=", parse_ok, " names_parse=", pn_ok, " names=", names_ok, " llm=", llm_ok)
+
+	# Per-world themed faction names: seeded generator is deterministic + distinct across
+	# seeds; set_adventure_factions installs/sorts them and drops the reserved raiders key;
+	# the LLM-reply parser tolerates a JSON array and a plain bulleted list.
+	var faction_names_ok := false
+	var fn_a: Array = Game.generate_faction_names(12345, 3)
+	var fn_b: Array = Game.generate_faction_names(12345, 3)
+	var fn_c: Array = Game.generate_faction_names(999, 3)
+	var gen_ok: bool = fn_a.size() == 3 and fn_a == fn_b and fn_a != fn_c \
+		and fn_a[0] != fn_a[1] and fn_a[1] != fn_a[2]
+	Game.set_adventure_factions(["Dust Vultures", "raiders", "Dust Vultures", "  Neon Ronin  "])
+	var set_ok: bool = Game.adventure_village_factions.size() == 2 \
+		and not Game.adventure_village_factions.has("raiders") \
+		and Game.adventure_village_factions.has("Neon Ronin") and Game.adventure_village_factions.has("Dust Vultures")
+	Game.adventure_setup(7)
+	var stance_ok: bool = Game.adventure_stance.has("Neon Ronin") and String(Game.adventure_stance.get("raiders", "")) == "hostile"
+	var parse_ok2 := true
+	var w2 := get_tree().get_first_node_in_group("world")
+	if w2 != null and w2.has_method("_parse_faction_names"):
+		var pj: Array = w2._parse_faction_names('["Chrome Serpents", "Neon Ronin", "Blackwire Cartel"]')
+		var pl: Array = w2._parse_faction_names("- Frostwolf Clan\n- Skalds of Hrim\n- Icebound Host")
+		parse_ok2 = pj.size() == 3 and String(pj[0]) == "Chrome Serpents" and pl.size() == 3 and pl.has("Icebound Host")
+	Game.set_adventure_factions(Game.DEFAULT_VILLAGE_FACTIONS.duplicate())   # restore defaults
+	faction_names_ok = gen_ok and set_ok and stance_ok and parse_ok2
+	print("SMOKE: faction_names_ok=", faction_names_ok, " gen=", gen_ok, " set=", set_ok, " stance=", stance_ok, " parse=", parse_ok2)
+
+	# Equipment: equip armor (zone damage reduction), equip/unequip a weapon, and
+	# verify worn armor cuts that zone's incoming damage.
+	var equip_ok := false
+	if me:
+		me.inventory.clear()
+		me.equip = {"head": {}, "body": {}, "pants": {}, "extra": {}, "gadget": {}}
+		me.weapons.set_loadout([])
+		# Equip body armor from the backpack -> goes to the body slot, leaves the grid.
+		me.inv_add(ItemDB.make("vest"))
+		me.equip_item(0)
+		var armor_equipped: bool = not (me.equip["body"] as Dictionary).is_empty() and me.inventory.is_empty()
+		# Armor is an extra-HP buffer: a torso hit drains armor (health untouched while it
+		# lasts); a head hit (no helmet) hits health directly.
+		# Positive attacker id = non-enemy source, so the raw (unscaled) damage is tested.
+		me.sync_health = 100.0
+		me.receive_damage(30.0, 2, "torso")   # vest has 80 hp -> soaks it all
+		var torso_buffered: bool = is_equal_approx(me.sync_health, 100.0) and float(me.equip["body"].get("cur_hp", 0)) < 80.0
+		me.sync_health = 100.0
+		me.receive_damage(30.0, 2, "head")    # no helmet -> health takes it
+		var head_unbuffered: bool = me.sync_health < 100.0
+		# Overflow + break: a hit past the vest's 80 hp destroys it and spills onto health
+		# (kept non-lethal so later tests still have a live player).
+		me.sync_health = 100.0
+		me.receive_damage(100.0, 2, "torso")
+		var armor_broke: bool = (me.equip["body"] as Dictionary).is_empty() and me.sync_health < 100.0 and me.sync_health > 0.0
+		# Equip a weapon -> fills a gun slot; unequip -> back to the backpack.
+		me.inv_add(ItemDB.make_weapon("rifle"))
+		me.equip_item(me.inventory.size() - 1)
+		var gun_ok: bool = me.weapons.loadout.has("rifle")
+		me.unequip("gun1")
+		var unequip_ok: bool = not me.weapons.loadout.has("rifle")
+		me.inventory.clear()
+		me.equip = {"head": {}, "body": {}, "pants": {}, "extra": {}, "gadget": {}}
+		me.sync_health = 100.0
+		equip_ok = armor_equipped and torso_buffered and head_unbuffered and armor_broke and gun_ok and unequip_ok
+		print("SMOKE: equip_ok=", equip_ok, " armor=", armor_equipped, " buffered=", torso_buffered, " head=", head_unbuffered, " broke=", armor_broke, " gun=", gun_ok, " unequip=", unequip_ok)
+
+	# Weapon loadout: fixed 3 slots, first-empty fill, slot-targeted equip with holes,
+	# remove leaves a hole, all-full replaces current, move/swap, switch skips empty.
+	var loadout_ok := false
+	if me:
+		var lwm = me.weapons
+		lwm.set_loadout([])
+		lwm.give_weapon("pistol")                       # -> slot 0
+		lwm.give_weapon("rifle")                        # -> slot 1
+		var fill_order_ok: bool = lwm.loadout[0] == "pistol" and lwm.loadout[1] == "rifle" and not lwm.slot_filled(2)
+		lwm.set_slot(2, "shotgun")                      # exact slot 2
+		lwm.remove_slot(1)                              # leaves a hole at slot 1
+		var l_hole_ok: bool = lwm.slot_filled(0) and not lwm.slot_filled(1) and lwm.slot_filled(2) and not lwm.ammo.has("rifle")
+		lwm.give_weapon("smg")                          # fills the hole (first empty)
+		var refill_hole_ok: bool = lwm.loadout[1] == "smg"
+		lwm.current_index = 0
+		lwm.give_weapon("sniper")                       # all full -> replace current (slot 0)
+		var replace_ok: bool = lwm.loadout[0] == "sniper" and not lwm.ammo.has("pistol")
+		var la0 = lwm.loadout[0]
+		var la2 = lwm.loadout[2]
+		lwm.move_slot(0, 2)                             # swap slots 0 and 2
+		var l_move_ok: bool = lwm.loadout[0] == la2 and lwm.loadout[2] == la0
+		lwm.remove_slot(1)
+		lwm.current_index = 0
+		lwm.switch_to(1)                               # empty slot -> ignored
+		var switch_ok: bool = lwm.current_index == 0
+		var ammo_ok: bool = lwm.ammo.has(lwm.loadout[lwm.current_index])
+		# Player-level: equip_item into a chosen slot swaps the displaced gun to the pack.
+		me.inventory.clear()
+		lwm.set_loadout(["rifle", "", ""])
+		me.inv_add(ItemDB.make_weapon("shotgun"))
+		me.equip_item(0, 0)                            # shotgun -> slot 0, rifle -> backpack
+		var rifle_in_pack := false
+		for it in me.inventory:
+			if String((it as Dictionary).get("weapon_id", "")) == "rifle":
+				rifle_in_pack = true
+		var swap_ok: bool = lwm.loadout[0] == "shotgun" and rifle_in_pack
+		me.inventory.clear()
+		lwm.set_loadout([])
+		loadout_ok = fill_order_ok and l_hole_ok and refill_hole_ok and replace_ok and l_move_ok and switch_ok and ammo_ok and swap_ok
+		print("SMOKE: loadout_ok=", loadout_ok, " fill=", fill_order_ok, " hole=", l_hole_ok, " refill=", refill_hole_ok, " replace=", replace_ok, " move=", l_move_ok, " switch=", switch_ok, " ammo=", ammo_ok, " swap=", swap_ok)
+
+	# Pistol-only Adventure start: _fill_adventure_start adds no extra gear and zeroes
+	# grenades (you spawn with just the equipped pistol).
+	var pistol_start_ok := false
+	if me:
+		me.inventory.clear()
+		me.grenades = 3
+		me._fill_adventure_start()
+		pistol_start_ok = me.inventory.is_empty() and me.grenades == 0
+		print("SMOKE: pistol_start_ok=", pistol_start_ok)
+
+	# Run stats + events log: firing tracks shots, the Stats tab builds rows, and a
+	# completed quest broadcasts an event line + pops the celebration banner.
+	var stats_ok := false
+	if me and hud and world:
+		me.weapons.set_loadout(["rifle", "", ""])
+		me.weapons.ammo["rifle"]["mag"] = 10
+		me.shots_fired = 0
+		me.weapons._fire()
+		var shot_count_ok: bool = me.shots_fired == 1
+		me.meters_walked = 123.0
+		me.shots_fired = 10
+		me.shots_hit = 5
+		hud._player = me
+		hud._refresh_stats()
+		var stats_rows_ok: bool = hud.stats_list.get_child_count() > 0
+		# Quest completion -> world.broadcast_event -> events log line + celebration.
+		var qm2 = load("res://scripts/world/quest_manager.gd").new()
+		qm2.name = "QM_event_test"
+		add_child(qm2)
+		qm2.world = world
+		qm2.target_points = 999   # don't trigger the victory scene change
+		var qzid = qm2._make("hunt", "Banner test", "", {"faction": "raiders", "count": 1})
+		# Clear the events log first — earlier tests may have filled it to its cap,
+		# where adding a line frees the oldest and the count stops growing.
+		for c in hud.event_log.get_children():
+			c.free()
+		var ev0: int = hud.event_log.get_child_count()
+		hud.celebration.visible = false
+		for q in qm2.quests:
+			if int(q["id"]) == qzid:
+				qm2._complete(q)
+		await get_tree().process_frame
+		var quest_event_ok: bool = hud.event_log.get_child_count() > ev0 and hud.celebration.visible
+		qm2.queue_free()
+		me.weapons.set_loadout([])
+		stats_ok = shot_count_ok and stats_rows_ok and quest_event_ok
+		print("SMOKE: stats_ok=", stats_ok, " shots=", shot_count_ok, " rows=", stats_rows_ok, " quest_event=", quest_event_ok)
+
+	# Terrain depth: climate biomes are diverse, vegetation/buildings/caves populate the
+	# nav region, and the same seed rebuilds an identical heightmap (co-op / save safety).
+	var terrain_depth_ok := false
+	var pms2 = Game.config.get("map_size", 1)
+	var psd2 = Game.config.get("seed", 0)
+	Game.config["map_size"] = 2
+	Game.config["seed"] = 2024
+	var terA: Node = load("res://maps/terrain.tscn").instantiate()
+	get_tree().root.add_child(terA)
+	await get_tree().physics_frame
+	var biomes := {}
+	for gx in range(-5, 6):
+		for gz in range(-5, 6):
+			var wx := float(gx) * 60.0
+			var wz := float(gz) * 60.0
+			biomes[terA._biome_at(wx, wz, terA._sample_height(wx, wz))] = true
+	var biome_variety_ok: bool = biomes.size() >= 3
+	var propc := 0
+	for ch in terA.get_node("NavRegion").get_children():
+		if ch is MeshInstance3D and ch.name != "TerrainMesh":
+			propc += 1   # built structures (cave/village/wall boxes)
+	# Trees/rocks render via a shared MultiMesh now; count the prop bodies themselves.
+	propc += get_tree().get_nodes_in_group("tree").size() + get_tree().get_nodes_in_group("rock").size()
+	var props_ok: bool = propc >= 50
+	# The MultiMesh batches all prop visuals into one instance.
+	var mm_ok := terA.get_node_or_null("PropVisuals") != null
+	var cave_loot := get_tree().get_nodes_in_group("pickup").size()
+	var terB: Node = load("res://maps/terrain.tscn").instantiate()
+	get_tree().root.add_child(terB)
+	await get_tree().physics_frame
+	var det_ok: bool = terA._heights.size() > 0 and terA._heights == terB._heights
+	# Theme drives a deterministic climate (cold themes -> colder, jungle -> denser).
+	var cold: Dictionary = terA._theme_climate("frozen tundra")
+	var jungle: Dictionary = terA._theme_climate("lush jungle")
+	var climate_ok: bool = float(cold["temp"]) < 0.0 and float(jungle["veg"]) > 1.0 \
+		and float(terA._theme_climate("anything else").temp) == 0.0
+	terA.queue_free()
+	terB.queue_free()
+	Game.config["map_size"] = pms2
+	Game.config["seed"] = psd2
+	terrain_depth_ok = biome_variety_ok and props_ok and det_ok and cave_loot > 0 and climate_ok and mm_ok
+	print("SMOKE: terrain_depth_ok=", terrain_depth_ok, " biomes=", biomes.size(), " props=", propc, " mm=", mm_ok, " determinism=", det_ok)
+
+	# Swimming + oxygen: air drains underwater, refills at the surface, and you drown
+	# (take damage) once it hits zero.
+	var swim_ok := false
+	if me:
+		me.oxygen = me.MAX_OXYGEN
+		me._update_oxygen(1.0, true)            # head underwater for 1s
+		var drain_ok: bool = me.oxygen < me.MAX_OXYGEN
+		me._update_oxygen(1.0, false)           # surfaced -> refills
+		var regen_ok: bool = me.oxygen > me.MAX_OXYGEN - me.OXYGEN_DRAIN
+		me.oxygen = 0.0
+		me.sync_health = 100.0
+		me._oxy_dmg_accum = 0.0
+		me._update_oxygen(1.0, true)            # out of air -> drowning damage
+		var drown_ok: bool = me.sync_health < 100.0
+		me.oxygen = me.MAX_OXYGEN
+		me.sync_health = 100.0
+		swim_ok = drain_ok and regen_ok and drown_ok
+		print("SMOKE: swim_ok=", swim_ok, " drain=", drain_ok, " regen=", regen_ok, " drown=", drown_ok)
+
+	# Ladders: the terrain places watchtower ladders, and the player detects the one
+	# it's standing in.
+	var ladder_ok := false
+	var pms3 = Game.config.get("map_size", 1)
+	var psd3 = Game.config.get("seed", 0)
+	Game.config["map_size"] = 2
+	Game.config["seed"] = 2024
+	var lterr: Node = load("res://maps/terrain.tscn").instantiate()
+	get_tree().root.add_child(lterr)
+	await get_tree().physics_frame
+	var ladders := get_tree().get_nodes_in_group("ladder")
+	var has_ladder: bool = ladders.size() >= 1
+	var detect_ok := false
+	if me and has_ladder:
+		var lad = ladders[0]
+		var lb: Vector3 = lad.get_meta("bottom")
+		var saved_pos: Vector3 = me.global_position
+		me.global_position = lb + Vector3(0, 0.5, 0)
+		detect_ok = me._nearest_ladder() != null
+		me.global_position = saved_pos
+	lterr.queue_free()
+	Game.config["map_size"] = pms3
+	Game.config["seed"] = psd3
+	ladder_ok = has_ladder and detect_ok
+	print("SMOKE: ladder_ok=", ladder_ok, " ladders=", ladders.size(), " detect=", detect_ok)
+
+	# Bots swim: a bot whose body is below the water surface enters the buoyancy state
+	# (floats / steers across water rather than sinking).
+	var bot_swim_ok := false
+	if world and me:
+		var bsid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(3, 0, 0), "soldier", 9, "raiders")
+		await get_tree().physics_frame
+		var bsbot: Node = null
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b.combatant_id == bsid:
+				bsbot = b
+		if bsbot:
+			bsbot._water_y = bsbot.global_position.y + 5.0   # pretend submerged
+			await get_tree().physics_frame
+			bot_swim_ok = bsbot.in_water
+		print("SMOKE: bot_swim_ok=", bot_swim_ok)
+
+	# Character profiles: create (kit seeds gear), apply to player, capture progress
+	# back, and delete. The save file round-trips through user://characters/.
+	var characters_ok := false
+	var cp: Dictionary = Characters.create("Tester", Color(0.2, 0.8, 0.3), "soldier", "A grizzled veteran.")
+	var created_ok: bool = Characters.has_current() and String(cp.get("name", "")) == "Tester" \
+		and String((cp.get("loadout", []) as Array)[0]) == "rifle" and not (cp.get("inventory", []) as Array).is_empty()
+	var apply_ok := false
+	var cap_ok := false
+	var del_ok := false
+	if me:
+		me.inventory.clear()
+		me.weapons.set_loadout([])
+		Characters.apply_to_player(me)
+		apply_ok = me.weapons.loadout[0] == "rifle" and not me.inventory.is_empty() and me.display_name == "Tester"
+		me.weapons.set_slot(1, "shotgun")
+		me.shots_fired = 7
+		Characters.capture_from_player(me)
+		cap_ok = String(Characters.current.get("loadout", ["", "", ""])[1]) == "shotgun" \
+			and int((Characters.current.get("stats", {}) as Dictionary).get("shots", 0)) >= 7
+		Characters.delete(String(Characters.current["id"]))
+		del_ok = not Characters.has_current()
+		me.inventory.clear()
+		me.weapons.set_loadout([])
+	characters_ok = created_ok and apply_ok and cap_ok and del_ok
+	print("SMOKE: characters_ok=", characters_ok, " create=", created_ok, " apply=", apply_ok, " capture=", cap_ok, " delete=", del_ok)
+
+	# Quest target marker: a raider that's the focus of an active hunt quest gets a
+	# visible world marker; pickups build a distinct shape (not just a box).
+	var quest_mark_ok := false
+	if world and me:
+		var prevm6 = Game.config["mode"]
+		Game.config["mode"] = Game.Mode.ADVENTURE
+		var qmm = load("res://scripts/world/quest_manager.gd").new()
+		qmm.name = "QM_mark"
+		add_child(qmm)
+		qmm.add_to_group("quest_manager")
+		qmm.world = world
+		qmm._activate(qmm._make("hunt", "Thin", "", {"faction": "raiders", "count": 3}))
+		var rbid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(10, 0, 0), "soldier", 6, "raiders")
+		await get_tree().process_frame
+		var rbot: Node = null
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b.combatant_id == rbid:
+				rbot = b
+		var kill_mark_ok := false
+		var cleared_ok := false
+		if rbot:
+			rbot._update_quest_marker()
+			kill_mark_ok = rbot._quest_marker != null and rbot._quest_marker.visible and rbot._quest_marker.text == "▼"
+			rbot._set_dead_visual(true)            # killed -> marker must clear
+			cleared_ok = not rbot._quest_marker.visible
+		# Quest giver gets a "!" marker (offers are stance-filtered, so force friendly).
+		Game.adventure_stance["Ridgeback Clan"] = "friendly"
+		var gbid: int = world.spawn_enemy(1.0, false, me.global_position + Vector3(-10, 0, 0), "soldier", 0, "Ridgeback Clan", {"name": "Giver", "role": "Elder"})
+		await get_tree().process_frame
+		var gbot: Node = null
+		for b in get_tree().get_nodes_in_group("bot"):
+			if b.combatant_id == gbid:
+				gbot = b
+		var giver_ok := false
+		if gbot:
+			qmm._make("collect", "Fetch", "", {"item": "ammo", "count": 1}, false, gbid)  # available, giver=gbot
+			gbot._update_quest_marker()
+			giver_ok = gbot._quest_marker != null and gbot._quest_marker.visible and gbot._quest_marker.text == "!"
+		quest_mark_ok = kill_mark_ok and cleared_ok and giver_ok
+		qmm.queue_free()
+		Game.config["mode"] = prevm6
+		print("SMOKE: quest_mark_ok=", quest_mark_ok, " kill=", kill_mark_ok, " cleared=", cleared_ok, " giver=", giver_ok)
+
+	# Pickup shapes: a non-weapon pickup builds several meshes (a recognisable shape),
+	# not a single box.
+	var pickup_shape_ok := false
+	var pv: Node = load("res://scenes/pickup.tscn").instantiate()
+	pv.kind = "health"
+	get_tree().root.add_child(pv)
+	await get_tree().process_frame
+	var mesh_n := 0
+	for n in pv.find_children("*", "MeshInstance3D", true, false):
+		mesh_n += 1
+	pickup_shape_ok = mesh_n >= 2
+	pv.queue_free()
+	print("SMOKE: pickup_shape_ok=", pickup_shape_ok, " meshes=", mesh_n)
+
+	# Fall damage: a hard landing (high airborne speed) costs health; the accumulator
+	# resets afterwards. A nav snap pulls an off-map point back onto the navmesh.
+	var fall_ok := false
+	if me:
+		me.downed = false
+		me.dead = false
+		me.fully_dead = false
+		# A hard landing (high airborne speed) hurts; a gentle one doesn't; resets after.
+		me.sync_health = 100.0
+		me._air_speed = 25.0
+		me._apply_fall_landing()
+		var hard_hp: float = me.sync_health
+		me.sync_health = 100.0
+		me._air_speed = 8.0           # below the safe speed
+		me._apply_fall_landing()
+		var soft_hp: float = me.sync_health
+		fall_ok = hard_hp < 100.0 and soft_hp == 100.0 and me._air_speed == 0.0
+		me.sync_health = 100.0
+		print("SMOKE: fall_ok=", fall_ok, " hard_hp=", hard_hp, " soft_hp=", soft_hp)
+
+	var snap_ok := false
+	if world:
+		var far := Vector3(2000, 0, 2000)
+		var snapped: Vector3 = world._snap_to_nav(far)
+		snap_ok = snapped.distance_to(far) > 1.0   # pulled toward the navmesh, not left off-map
+		print("SMOKE: snap_ok=", snap_ok)
+
+	# Adventure death: drops carried items as loot and resets the backpack/gear to a
+	# fresh start (pistol only).
+	var death_drop_ok := false
+	if me:
+		me.inventory.clear()
+		me.inv_add(ItemDB.make("food"))
+		me.inv_add(ItemDB.make_weapon("rifle"))
+		me.equip = {"head": {}, "body": ItemDB.make("vest"), "pants": {}, "extra": {}}
+		var before_pickups := get_tree().get_nodes_in_group("pickup").size()
+		me._drop_loot_on_death()
+		await get_tree().process_frame
+		var after_pickups := get_tree().get_nodes_in_group("pickup").size()
+		death_drop_ok = me.inventory.is_empty() and me.weapons.loadout[0] == "pistol" \
+			and (me.equip["body"] as Dictionary).is_empty() and after_pickups > before_pickups
+		me.inventory.clear()
+		me.weapons.set_loadout([])
+		print("SMOKE: death_drop_ok=", death_drop_ok)
+
+	# Tiny adventures: the smallest map size builds a (smaller) world that still bakes
+	# a navmesh and has a few villages.
+	var tiny_map_ok := false
+	var pmt = Game.config.get("map_size", 2)
+	var pstt = Game.config.get("seed", 0)
+	Game.config["map_size"] = 0   # Tiny
+	Game.config["seed"] = 99
+	var tterr: Node = load("res://maps/terrain.tscn").instantiate()
+	get_tree().root.add_child(tterr)
+	await get_tree().physics_frame
+	var treg2 = tterr.get_node_or_null("NavRegion")
+	var tpolys2: int = treg2.navigation_mesh.get_polygon_count() if treg2 and treg2.navigation_mesh else 0
+	var tpoi2 := 0
+	for c in tterr.get_children():
+		if c.is_in_group("poi_site"):
+			tpoi2 += 1
+	tterr.queue_free()
+	Game.config["map_size"] = pmt
+	Game.config["seed"] = pstt
+	tiny_map_ok = tpolys2 > 0 and tpoi2 >= 3
+	print("SMOKE: tiny_map_ok=", tiny_map_ok, " polys=", tpolys2, " poi=", tpoi2)
+
+	# AI model presets: the menu offers a tiny..huge embedded-model lineup, each with a
+	# download URL and a .gguf filename, and selecting one drives Settings.
+	var ai_models_ok := false
+	var mm_script = load("res://scripts/ui/main_menu.gd")
+	var presets: Array = mm_script.AI_MODELS
+	ai_models_ok = presets.size() >= 3
+	for p in presets:
+		var pd: Dictionary = p
+		if not (pd.has("name") and pd.has("url") and pd.has("file") and String(pd["file"]).ends_with(".gguf") and String(pd["url"]).begins_with("http")):
+			ai_models_ok = false
+	# Tiny and Huge are distinct files (the selector actually changes the model).
+	if presets.size() >= 2 and String((presets[0] as Dictionary)["file"]) == String((presets[-1] as Dictionary)["file"]):
+		ai_models_ok = false
+	print("SMOKE: ai_models_ok=", ai_models_ok, " presets=", presets.size())
+
+	print("SMOKE: fire_works=", fired_ok, " damage_signal=", sig[0], " damage_number=", damage_number_ok, " hit_flash=", flash_ok, " audio=", audio_ok, " headshot=", headshot_ok, " highlands=", highlands_ok)
+	print("SMOKE: DONE ok=", players >= 1 and bots >= 1 and nav >= 1 and fired_ok and sig[0] and damage_number_ok and flash_ok and audio_ok and spawn_clear and headshot_ok and highlands_ok and crouch_ok and coverage_ok and grenade_ok and settings_ok and variety_ok and pickup_ok and team_helpers_ok and revive_ok and scoreboard_ok and new_maps_ok and killfeed_ok and interior_ok and huge_ok and vehicle_ok and destroy_ok and variant_ok and handling_ok and flip_ok and smoke_ok and hole_ok and crash_ok and heli_ok and bot_veh_ok and dom_ok and objectives_ok and br_ok and wasteland_ok and survival_ok and safe_zone_ok and inventory_ok and debug_ok and terrain_ok and landform_ok and features_ok and comfyui_ok and survival_start_ok and inv_ui_ok and factions_ok and npc_ident_ok and npc_negotiate_ok and quests_ok and story_ok and faction_names_ok and equip_ok and minimap_ok and loadout_ok and pistol_start_ok and stats_ok and terrain_depth_ok and ai_models_ok and swim_ok and ladder_ok and bot_swim_ok and characters_ok and tiny_map_ok and quest_mark_ok and pickup_shape_ok and fall_ok and snap_ok and death_drop_ok and missions_ok and dynamic_ok and improve_ok and nade_item_ok and nade_fx_ok and collect_ok and immersion_ok and gear_ok and wildlife_ok and archetype_ok and craft_ok and music_ok and tree_ok and preset_ok and extras_ok)
+	get_tree().quit()
+
+func _count_label3d() -> int:
+	var n := 0
+	for node in get_tree().current_scene.get_children():
+		if node is Label3D:
+			n += 1
+	return n

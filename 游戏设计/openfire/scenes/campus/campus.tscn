@@ -1,0 +1,94 @@
+[gd_scene load_steps=13 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/campus/campus_full.glb" id="1_visual"]
+
+[ext_resource type="PackedScene" path="res://assets/campus/campus_full_collision.scn" id="2_campus"]
+
+[ext_resource type="Script" path="res://scripts/campus/campus_walker.gd" id="3_walker"]
+
+[ext_resource type="PackedScene" path="res://scenes/campus/debug_controls.tscn" id="4_debug"]
+
+[ext_resource type="Script" path="res://scripts/campus/campus_world.gd" id="5_world"]
+
+[ext_resource type="Script" path="res://scripts/campus/campus_doors.gd" id="6_doors"]
+[ext_resource type="ArrayOccluder3D" path="res://assets/campus/campus_occluder.res" id="7_occluder"]
+[ext_resource type="Script" path="res://scripts/campus/campus_teaching_repairs.gd" id="8_teaching"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSky_Daylight"]
+sky_top_color = Color(0.26, 0.50, 0.72, 1)
+sky_horizon_color = Color(0.74, 0.83, 0.91, 1)
+ground_bottom_color = Color(0.38, 0.44, 0.44, 1)
+ground_horizon_color = Color(0.74, 0.83, 0.91, 1)
+
+[sub_resource type="Sky" id="Sky_Daylight"]
+sky_material = SubResource("ProceduralSky_Daylight")
+
+[sub_resource type="Environment" id="Environment_Exterior"]
+background_mode = 2
+sky = SubResource("Sky_Daylight")
+ambient_light_source = 2
+ambient_light_color = Color(0.83, 0.9, 1, 1)
+ambient_light_energy = 0.58
+fog_enabled = false
+fog_mode = 1
+fog_light_color = Color(0.74, 0.83, 0.91, 1)
+fog_density = 1.0
+fog_depth_begin = 90.0
+fog_depth_end = 250.0
+
+[sub_resource type="CapsuleShape3D" id="Capsule_Walker"]
+radius = 0.26
+height = 1.73
+
+[node name="Campus" type="Node3D"]
+script = ExtResource("5_world")
+
+
+[node name="CampusVisuals" parent="." instance=ExtResource("1_visual")]
+
+[node name="CampusOccluder" type="OccluderInstance3D" parent="CampusVisuals"]
+occluder = ExtResource("7_occluder")
+
+[node name="CampusCollision" parent="." instance=ExtResource("2_campus")]
+
+[node name="Doors" type="Node" parent="."]
+script = ExtResource("6_doors")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_Exterior")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-53, -35, 0)
+light_energy = 1.02
+shadow_enabled = true
+directional_shadow_max_distance = 130.0
+
+[node name="CampusFrame" type="Node3D" parent="."]
+position = Vector3(-143.8380127, 0, -127.1648865)
+rotation = Vector3(0, -1.562109, 0)
+
+[node name="Spawn" type="Marker3D" parent="."]
+unique_name_in_owner = true
+position = Vector3(0, 0.34, 14)
+
+[node name="Walker" type="CharacterBody3D" parent="."]
+collision_layer = 2
+floor_snap_length = 0.35
+script = ExtResource("3_walker")
+
+[node name="Capsule" type="CollisionShape3D" parent="Walker"]
+position = Vector3(0, 0.865, 0)
+shape = SubResource("Capsule_Walker")
+
+[node name="Camera3D" type="Camera3D" parent="Walker"]
+position = Vector3(0, 1.59, 0)
+current = true
+near = 0.04
+far = 2000.0
+
+[node name="Interface" type="CanvasLayer" parent="."]
+
+[node name="DebugControls" parent="Interface" instance=ExtResource("4_debug")]
+
+[node name="TeachingInteriorRepairs" type="Node3D" parent="."]
+script = ExtResource("8_teaching")

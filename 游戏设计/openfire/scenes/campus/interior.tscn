@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/campus/campus.tscn" id="1"]
+
+[node name="CampusClassroomStart" instance=ExtResource("1")]
+
+[node name="Spawn" parent="."]
+position = Vector3(-136.78215106405617, 0.54, -132.27637518475865)
+rotation = Vector3(0, -1.562109, 0)

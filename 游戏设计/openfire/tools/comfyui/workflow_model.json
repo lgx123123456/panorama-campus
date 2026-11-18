@@ -1,0 +1,12 @@
+{
+  "3": {"class_type": "KSampler", "inputs": {"seed": %SEED%, "steps": %STEPS%, "cfg": 7.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0, "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["5", 0]}},
+  "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "%CKPT%"}},
+  "5": {"class_type": "EmptyLatentImage", "inputs": {"width": %WIDTH%, "height": %HEIGHT%, "batch_size": 1}},
+  "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "%PROMPT%, single centered object, plain solid background, full object in frame, studio lighting", "clip": ["4", 1]}},
+  "7": {"class_type": "CLIPTextEncode", "inputs": {"text": "%NEG%, multiple objects, cropped, cut off", "clip": ["4", 1]}},
+  "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
+  "12": {"class_type": "InspyrenetRembg", "inputs": {"image": ["8", 0], "torchscript_jit": "default"}},
+  "13": {"class_type": "TripoSRModelLoader", "inputs": {"model": "triposr.ckpt", "chunk_size": 8192}},
+  "14": {"class_type": "TripoSRSampler", "inputs": {"model": ["13", 0], "reference_image": ["8", 0], "reference_mask": ["12", 1], "geometry_resolution": 256, "threshold": 25.0}},
+  "15": {"class_type": "TripoSRViewer", "inputs": {"mesh": ["14", 0]}}
+}

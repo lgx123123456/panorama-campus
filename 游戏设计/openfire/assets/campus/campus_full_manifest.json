@@ -1,0 +1,16 @@
+{
+  "source": "还原\\成果\\男女宿舍布局重排\\预览_整校.glb",
+  "source_sha256": "ef645c2cd92251fd82dff6835bf218df235d83df1a768cd6cdb47ed53f33279d",
+  "master_mesh_instances": 7471,
+  "master_triangles": 10844284,
+  "game_mesh_instances": 3171,
+  "game_triangles": 10844284,
+  "materials": 489,
+  "images": 113,
+  "changes": [
+    "Static meshes use the complete batched preview",
+    "All GPU room instances expanded to shared-mesh glTF nodes",
+    "Main gate retains the preceding open-door pose",
+    "Classroom door geometry is split into independent hinged meshes"
+  ]
+}

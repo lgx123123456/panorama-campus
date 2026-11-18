@@ -1,0 +1,48 @@
+[gd_scene load_steps=2 format=3]
+
+[sub_resource type="StyleBoxFlat" id="PanelStyle"]
+content_margin_left = 14.0
+content_margin_top = 10.0
+content_margin_right = 14.0
+content_margin_bottom = 10.0
+bg_color = Color(0.045, 0.065, 0.09, 0.92)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_left = 6
+corner_radius_bottom_right = 6
+
+[node name="DebugControls" type="PanelContainer"]
+offset_left = 24.0
+offset_top = 24.0
+offset_right = 394.0
+mouse_filter = 1
+theme_override_styles/panel = SubResource("PanelStyle")
+
+[node name="Rows" type="VBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SpeedLabel" type="Label" parent="Rows"]
+layout_mode = 2
+text = "速度 ×2.0  ·  6.4 米/秒"
+
+[node name="Speed" type="HSlider" parent="Rows"]
+custom_minimum_size = Vector2(340, 28)
+layout_mode = 2
+min_value = 0.5
+max_value = 20.0
+step = 0.5
+value = 2.0
+
+[node name="Flight" type="CheckButton" parent="Rows"]
+layout_mode = 2
+text = "飞行穿墙（F）"
+
+[node name="Controls" type="Label" parent="Rows"]
+layout_mode = 2
+text = "Tab 释放/捕获鼠标，可拖动调速\nWASD 移动 · Shift 加速 · E 开关楼门\n飞行时 Space 上升 · Ctrl 下降\nR 回到起点 · Esc 返回菜单"
+
+[node name="DoorHint" type="Label" parent="Rows"]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.87, 0.47, 1)

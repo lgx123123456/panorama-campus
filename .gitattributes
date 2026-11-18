@@ -1,0 +1,4 @@
+游戏设计/openfire/assets/campus/campus_full.glb filter=lfs diff=lfs merge=lfs -text
+游戏设计/openfire/assets/campus/campus_full_collision.scn filter=lfs diff=lfs merge=lfs -text
+游戏设计/openfire/assets/campus/gate_plaza.glb filter=lfs diff=lfs merge=lfs -text
+游戏设计/openfire/addons/godot_iroh/godot_iroh.dylib filter=lfs diff=lfs merge=lfs -text

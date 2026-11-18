@@ -1,0 +1,110 @@
+# ComfyUI asset bridge
+
+OpenFire uses a local **ComfyUI** server to pre-bake **themed props** (textures / billboard
+sprites, and GLB models with a 3D workflow). ComfyUI ships **alongside the game binary** and
+is always on — there is no enable toggle, and the checkpoints folder is derived from the
+game's own location (`<game_dir>/comfyui/models/checkpoints/`, or `user://comfyui/…` in the
+editor). The AI **model** auto-downloads there from the Options menu.
+
+## Why it's a *bridge*, not embedded
+
+ComfyUI is a Python + PyTorch + GPU stack (several GB, needs a real GPU). Unlike the tiny
+in-process text model, it can't run inside the game. Instead the game talks to a **local
+ComfyUI server over HTTP** (like the LM Studio story fallback) and can **launch** it for you
+so it feels built-in. Generation is slow (seconds–minutes per asset, GPU-gated), so assets
+are **pre-baked once** into `user://generated/` and reused — never generated mid-match. When
+disabled/unreachable, the game falls back to its procedural (primitive) objects.
+
+## Fully automatic ("download game, play")
+
+Set `[comfyui] bundle_url` (settings.cfg) to a **ready-to-run ComfyUI packaged as a `.zip`**
+(Godot can extract `.zip`, not the portable's `.7z`, so repackage as zip). On first launch,
+with no ComfyUI present, the game **auto-downloads that zip, extracts it into `comfyui/`, and
+launches it** (`ComfyUI._boot` → `ensure_installed`), then downloads the model and writes the
+config. Zero manual steps — the only cost is the one-time ~GB download and a GPU to run it.
+The `.zip` must contain a launcher at its root (`run_nvidia_gpu.bat` / `start.sh`).
+
+## Bundling a standalone ComfyUI (place it yourself)
+
+Place a self-contained ComfyUI in **`<game_dir>/comfyui/`** so the game launches and owns it:
+
+- **Windows** — unzip the official **ComfyUI portable** so you get
+  `<game_dir>/comfyui/ComfyUI/`, `<game_dir>/comfyui/python_embeded/`, and the
+  `run_nvidia_gpu.bat` / `run_cpu.bat` launchers directly in `<game_dir>/comfyui/`. The game
+  auto-runs one of those on startup (`ComfyUI._bundled_launcher`).
+- **Linux/macOS** — ship `tools/comfyui_start.sh` as `<game_dir>/comfyui/start.sh`; its first
+  run creates a venv and installs ComfyUI + PyTorch.
+
+The game downloads the model into `<game_dir>/comfyui/models/checkpoints/` and writes
+`extra_model_paths.yaml` (into `comfyui/` and, if present, `comfyui/ComfyUI/`) so ComfyUI —
+portable or not — reads the model with no manual config. Endpoint stays `127.0.0.1:8188`.
+
+## Setup
+
+1. Install ComfyUI and a checkpoint model (e.g. an SDXL `.safetensors`) on a machine with a
+   GPU. Confirm it runs at `http://127.0.0.1:8188`.
+2. In OpenFire → **Options → AI assets (ComfyUI)**:
+   - **Endpoint** — default `http://127.0.0.1:8188`
+   - **Download the AI model** — fetches a Stable Diffusion 1.5 checkpoint into the bundled
+     `comfyui/models/checkpoints/` folder (next to the game) and selects it. (Restart ComfyUI
+     once if it doesn't list the new file — it caches the folder on start.) On an HTTP 400 the
+     bridge also auto-detects any already-installed checkpoint and retries.
+   - The game writes an **`extra_model_paths.yaml`** in the bundled `comfyui/` folder that
+     maps ComfyUI to the downloaded model. Launch your ComfyUI with
+     `--extra-model-paths-config <game>/comfyui/extra_model_paths.yaml` (the game does this
+     automatically when it launches ComfyUI via the optional `[comfyui] exec`), or copy that
+     file into your ComfyUI install. Restart ComfyUI once so it re-scans.
+4. (Optional, "embedded" launch) In `settings.cfg` set `[comfyui] exec` to a launch script
+   and `args`; the game will start ComfyUI via `OS.create_process` when baking.
+5. Click **Bake sample asset library**. Watch ComfyUI process the queue; results land in
+   `user://generated/*.png`.
+
+## Workflows (incl. text → textured 3D)
+
+Workflows are ComfyUI **API-format** JSON with placeholders the bridge substitutes per asset:
+`%PROMPT%` `%NEG%` `%SEED%` `%WIDTH%` `%HEIGHT%` `%STEPS%` `%CKPT%`.
+
+`ComfyUI.workflow_template_path(kind)` resolves a template in this order:
+1. `user://comfyui/workflow_<kind>.json` — a per-machine override (wins if present).
+2. `comfyui/workflow_<kind>.json` next to the binary — **shipped inside the bundle**.
+3. built-in graph (for `image` / `reskin` only).
+
+### Text → 3D is bundled, any GPU, zero setup
+
+`workflow_model.json` (source in `tools/comfyui/`, shipped in the bundle root) is a **two-stage**
+graph: SD txt2img turns the prompt into a single-object image, then **TripoSR** (via
+ComfyUI-3D-Pack) reconstructs a vertex-coloured GLB — so a plain text prompt yields a 3D model
+with nothing for the player to install. The bundle build (`tools/make_comfyui_bundle.sh`) clones
+ComfyUI-3D-Pack + an Inspyrenet rembg node into `custom_nodes/` and installs their requirements
+on first run. TripoSR's model is **ungated** and auto-downloaded by its node — no bundling, token,
+or setup.
+
+TripoSR was chosen because it runs on **any GPU** (PyMCubes mesh extraction is CPU/portable; the
+transformer runs on any torch device). **Stable Fast 3D was rejected**: its texture baker is
+CUDA/NVIDIA-only (`slangtorch` + a `must be on cuda` assert), so it can't meet "works on any GPU."
+
+The debug panel's **3D model (textured)** toggle is on by default whenever the bundle provides
+`workflow_model.json`. To swap engines or fix node names, edit `tools/comfyui/workflow_model.json`
+(see `tools/comfyui/README.md`) or drop an override in `user://comfyui/`.
+
+The bridge reads the produced file from `/history` (`images`, `gltf`, `3d`, or `meshes`
+outputs) and downloads it via `/view` into the cache. `.glb` files are loaded by the world
+with `GLTFDocument`; images become textures via `ComfyUI.asset_texture(key)`.
+
+## API (scripts/autoload/comfyui.gd)
+
+- `enabled()`, `endpoint()`
+- `ensure_server()` → `server_checked(ok)`
+- `bake(prompt, key, kind="image")` → `asset_ready(key, path)` / `asset_failed(key)`
+- `bake_library(specs)` → `bake_progress(done,total)`, `bake_finished()`
+- `has_asset(key)`, `cache_path(key, ext)`, `asset_texture(key)`
+- `sample_library()` — starter themed prompts
+
+## Status
+
+The bridge (HTTP client, workflow templating, caching, managed launch, Options UI) is built
+and unit-tested for everything that doesn't need a live server. The live generation path
+must be verified against a real ComfyUI install — it was authored without one available.
+Placing baked assets into the world by theme is a **separate follow-up** (the procedural
+object-placement track); today baking populates the cache and `asset_texture(key)` can load
+them, but worlds don't yet auto-consume them.

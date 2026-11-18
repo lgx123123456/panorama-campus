@@ -1,0 +1,630 @@
+[gd_scene load_steps=8 format=3 uid="uid://chud00000001"]
+
+[ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1_hud"]
+[ext_resource type="Script" path="res://scripts/ui/crosshair.gd" id="2_cross"]
+[ext_resource type="Script" path="res://scripts/ui/damage_direction.gd" id="3_dmgdir"]
+[ext_resource type="Script" path="res://scripts/ui/minimap.gd" id="4_minimap"]
+[ext_resource type="Script" path="res://scripts/ui/backpack_grid.gd" id="5_bgrid"]
+[ext_resource type="Script" path="res://scripts/ui/equip_panel.gd" id="6_equip"]
+[ext_resource type="Script" path="res://scripts/ui/world_map.gd" id="7_wmap"]
+
+[node name="HUD" type="CanvasLayer"]
+script = ExtResource("1_hud")
+
+[node name="Minimap" type="Control" parent="."]
+mouse_filter = 2
+script = ExtResource("4_minimap")
+
+[node name="Crosshair" type="Control" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+script = ExtResource("2_cross")
+
+[node name="DamageFlash" type="ColorRect" parent="."]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+color = Color(0.7, 0, 0, 0)
+
+[node name="DamageDirection" type="Control" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+script = ExtResource("3_dmgdir")
+
+[node name="EventLog" type="VBoxContainer" parent="."]
+unique_name_in_owner = true
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -340.0
+offset_top = 214.0
+offset_right = -12.0
+offset_bottom = 430.0
+alignment = 0
+theme_override_constants/separation = 2
+
+[node name="Celebration" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_top = 0.0
+anchor_right = 0.5
+anchor_bottom = 0.0
+offset_left = -360.0
+offset_top = 84.0
+offset_right = 360.0
+offset_bottom = 150.0
+mouse_filter = 2
+theme_override_font_sizes/font_size = 34
+horizontal_alignment = 1
+vertical_alignment = 1
+text = ""
+
+[node name="ObjectiveLabel" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -360.0
+offset_top = 18.0
+offset_right = 360.0
+offset_bottom = 50.0
+horizontal_alignment = 1
+text = ""
+
+[node name="VersionLabel" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -170.0
+offset_top = 6.0
+offset_right = -10.0
+offset_bottom = 28.0
+modulate = Color(1, 1, 1, 0.45)
+horizontal_alignment = 2
+text = "v0.0.0"
+
+[node name="TeamScoreLabel" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -220.0
+offset_top = 50.0
+offset_right = 220.0
+offset_bottom = 80.0
+horizontal_alignment = 1
+text = ""
+
+[node name="HealthBar" type="ProgressBar" parent="."]
+unique_name_in_owner = true
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -64.0
+offset_right = 264.0
+offset_bottom = -36.0
+max_value = 100.0
+value = 100.0
+show_percentage = false
+
+[node name="HealthLabel" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -96.0
+offset_right = 264.0
+offset_bottom = -68.0
+text = "100"
+
+[node name="LivesLabel" type="Label" parent="."]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 10.0
+offset_right = 240.0
+offset_bottom = 34.0
+modulate = Color(0.7, 1, 0.8, 1)
+text = ""
+
+[node name="QuestTracker" type="Label" parent="."]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 132.0
+offset_right = 380.0
+offset_bottom = 280.0
+modulate = Color(1, 0.92, 0.6, 1)
+text = ""
+
+[node name="HungerLabel" type="Label" parent="."]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 40.0
+offset_right = 240.0
+offset_bottom = 62.0
+modulate = Color(1, 0.75, 0.4, 1)
+text = "Hunger 100"
+
+[node name="HungerBar" type="ProgressBar" parent="."]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 62.0
+offset_right = 224.0
+offset_bottom = 78.0
+modulate = Color(1, 0.75, 0.4, 1)
+max_value = 100.0
+value = 100.0
+show_percentage = false
+
+[node name="ThirstLabel" type="Label" parent="."]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 82.0
+offset_right = 240.0
+offset_bottom = 104.0
+modulate = Color(0.4, 0.7, 1, 1)
+text = "Thirst 100"
+
+[node name="ThirstBar" type="ProgressBar" parent="."]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 104.0
+offset_right = 224.0
+offset_bottom = 120.0
+modulate = Color(0.4, 0.7, 1, 1)
+max_value = 100.0
+value = 100.0
+show_percentage = false
+
+[node name="OxygenLabel" type="Label" parent="."]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 124.0
+offset_right = 240.0
+offset_bottom = 146.0
+modulate = Color(0.5, 0.9, 1, 1)
+text = "Oxygen 100"
+
+[node name="OxygenBar" type="ProgressBar" parent="."]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 146.0
+offset_right = 224.0
+offset_bottom = 162.0
+modulate = Color(0.5, 0.9, 1, 1)
+max_value = 100.0
+value = 100.0
+show_percentage = false
+
+[node name="CarHealthLabel" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -158.0
+offset_right = 264.0
+offset_bottom = -132.0
+modulate = Color(1, 0.8, 0.4, 1)
+text = "🚗 350"
+
+[node name="CarHealthBar" type="ProgressBar" parent="."]
+unique_name_in_owner = true
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -130.0
+offset_right = 264.0
+offset_bottom = -106.0
+modulate = Color(1, 0.8, 0.4, 1)
+max_value = 350.0
+value = 350.0
+show_percentage = false
+
+[node name="WeaponLabel" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -284.0
+offset_top = -96.0
+offset_right = -24.0
+offset_bottom = -68.0
+horizontal_alignment = 2
+text = "Assault Rifle"
+
+[node name="GrenadeLabel" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -284.0
+offset_top = -128.0
+offset_right = -24.0
+offset_bottom = -100.0
+horizontal_alignment = 2
+modulate = Color(0.8, 0.95, 0.7, 1)
+text = "Grenades: 2"
+
+[node name="AmmoLabel" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -284.0
+offset_top = -64.0
+offset_right = -24.0
+offset_bottom = -32.0
+horizontal_alignment = 2
+text = "30 / 120"
+
+[node name="DeathLabel" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -200.0
+offset_top = 40.0
+offset_right = 200.0
+offset_bottom = 80.0
+horizontal_alignment = 1
+text = "You died — respawning…"
+
+[node name="VehiclePrompt" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -200.0
+offset_top = -130.0
+offset_right = 200.0
+offset_bottom = -106.0
+horizontal_alignment = 1
+text = ""
+
+[node name="Scoreboard" type="Panel" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -220.0
+offset_top = -200.0
+offset_right = 220.0
+offset_bottom = 200.0
+mouse_filter = 2
+
+[node name="ScoreTitle" type="Label" parent="Scoreboard"]
+offset_left = 16.0
+offset_top = 10.0
+offset_right = 420.0
+offset_bottom = 40.0
+mouse_filter = 2
+text = "SCOREBOARD"
+horizontal_alignment = 1
+
+[node name="ScoreRows" type="VBoxContainer" parent="Scoreboard"]
+unique_name_in_owner = true
+offset_left = 24.0
+offset_top = 50.0
+offset_right = 416.0
+offset_bottom = 388.0
+mouse_filter = 2
+
+[node name="ResultPanel" type="Panel" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -280.0
+offset_top = -120.0
+offset_right = 280.0
+offset_bottom = 120.0
+
+[node name="ResultLabel" type="Label" parent="ResultPanel"]
+unique_name_in_owner = true
+anchor_right = 1.0
+anchor_bottom = 1.0
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "Match Over"
+
+[node name="InventoryPanel" type="Panel" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -300.0
+offset_top = -250.0
+offset_right = 300.0
+offset_bottom = 250.0
+
+[node name="VBox" type="VBoxContainer" parent="InventoryPanel"]
+offset_left = 16.0
+offset_top = 12.0
+offset_right = 584.0
+offset_bottom = 488.0
+theme_override_constants/separation = 6
+
+[node name="Tabs" type="TabContainer" parent="InventoryPanel/VBox"]
+unique_name_in_owner = true
+size_flags_vertical = 3
+
+[node name="Inventory" type="VBoxContainer" parent="InventoryPanel/VBox/Tabs"]
+theme_override_constants/separation = 6
+
+[node name="InvCapacity" type="Label" parent="InventoryPanel/VBox/Tabs/Inventory"]
+unique_name_in_owner = true
+text = "Space  0 / 16"
+horizontal_alignment = 1
+
+[node name="InvHBox" type="HBoxContainer" parent="InventoryPanel/VBox/Tabs/Inventory"]
+theme_override_constants/separation = 18
+alignment = 1
+
+[node name="EquipPanel" type="Control" parent="InventoryPanel/VBox/Tabs/Inventory/InvHBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(196, 256)
+script = ExtResource("6_equip")
+
+[node name="InvGrid" type="Control" parent="InventoryPanel/VBox/Tabs/Inventory/InvHBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(200, 200)
+script = ExtResource("5_bgrid")
+
+[node name="InvHint" type="Label" parent="InventoryPanel/VBox/Tabs/Inventory"]
+modulate = Color(1, 1, 1, 0.55)
+text = "Double-click or drag left to equip • drag out (right) to drop • double-click a slot to unequip"
+horizontal_alignment = 1
+
+[node name="Skills" type="ScrollContainer" parent="InventoryPanel/VBox/Tabs"]
+
+[node name="SkillsList" type="VBoxContainer" parent="InventoryPanel/VBox/Tabs/Skills"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="Crafting" type="ScrollContainer" parent="InventoryPanel/VBox/Tabs"]
+
+[node name="CraftList" type="VBoxContainer" parent="InventoryPanel/VBox/Tabs/Crafting"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="Stats" type="ScrollContainer" parent="InventoryPanel/VBox/Tabs"]
+
+[node name="StatsList" type="VBoxContainer" parent="InventoryPanel/VBox/Tabs/Stats"]
+unique_name_in_owner = true
+theme_override_constants/separation = 4
+
+[node name="GeneratingPanel" type="Panel" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -260.0
+offset_top = -60.0
+offset_right = 260.0
+offset_bottom = 60.0
+
+[node name="GenLabel" type="Label" parent="GeneratingPanel"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_right = -12.0
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 3
+text = "Preparing the world…"
+
+[node name="NpcPrompt" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -320.0
+offset_top = 92.0
+offset_right = 320.0
+offset_bottom = 116.0
+modulate = Color(0.8, 1, 0.85, 1)
+horizontal_alignment = 1
+text = ""
+
+[node name="NpcDialog" type="Panel" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -270.0
+offset_top = -170.0
+offset_right = 270.0
+offset_bottom = 170.0
+
+[node name="VBox" type="VBoxContainer" parent="NpcDialog"]
+offset_left = 18.0
+offset_top = 16.0
+offset_right = 522.0
+offset_bottom = 324.0
+theme_override_constants/separation = 10
+
+[node name="Header" type="HBoxContainer" parent="NpcDialog/VBox"]
+theme_override_constants/separation = 12
+
+[node name="NpcPortrait" type="TextureRect" parent="NpcDialog/VBox/Header"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(88, 88)
+visible = false
+size_flags_vertical = 4
+expand_mode = 1
+stretch_mode = 5
+
+[node name="HeaderText" type="VBoxContainer" parent="NpcDialog/VBox/Header"]
+size_flags_horizontal = 3
+size_flags_vertical = 4
+
+[node name="NpcName" type="Label" parent="NpcDialog/VBox/Header/HeaderText"]
+unique_name_in_owner = true
+horizontal_alignment = 1
+text = "Name"
+
+[node name="NpcRole" type="Label" parent="NpcDialog/VBox/Header/HeaderText"]
+unique_name_in_owner = true
+modulate = Color(1, 1, 1, 0.7)
+horizontal_alignment = 1
+text = "Role"
+
+[node name="NpcScroll" type="ScrollContainer" parent="NpcDialog/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 150)
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="NpcBody" type="Label" parent="NpcDialog/VBox/NpcScroll"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(484, 0)
+size_flags_horizontal = 3
+autowrap_mode = 3
+horizontal_alignment = 1
+text = "..."
+
+[node name="AskRow" type="HBoxContainer" parent="NpcDialog/VBox"]
+theme_override_constants/separation = 6
+
+[node name="NpcAsk" type="LineEdit" parent="NpcDialog/VBox/AskRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(300, 0)
+size_flags_horizontal = 3
+placeholder_text = "Say something…"
+
+[node name="NpcAskBtn" type="Button" parent="NpcDialog/VBox/AskRow"]
+unique_name_in_owner = true
+text = "Ask"
+
+[node name="NpcTrade" type="Button" parent="NpcDialog/VBox"]
+unique_name_in_owner = true
+text = "Trade"
+
+[node name="NpcHire" type="Button" parent="NpcDialog/VBox"]
+unique_name_in_owner = true
+text = "Hire"
+
+[node name="NpcAccept" type="Button" parent="NpcDialog/VBox"]
+unique_name_in_owner = true
+text = "Accept Task"
+
+[node name="NpcClose" type="Button" parent="NpcDialog/VBox"]
+unique_name_in_owner = true
+text = "Close"
+
+[node name="PausePanel" type="Panel" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -140.0
+offset_top = -100.0
+offset_right = 140.0
+offset_bottom = 100.0
+
+[node name="VBox" type="VBoxContainer" parent="PausePanel"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 30.0
+offset_top = 30.0
+offset_right = -30.0
+offset_bottom = -30.0
+alignment = 1
+
+[node name="PauseTitle" type="Label" parent="PausePanel/VBox"]
+text = "Paused"
+horizontal_alignment = 1
+
+[node name="ResumeButton" type="Button" parent="PausePanel/VBox"]
+unique_name_in_owner = true
+text = "Resume"
+
+[node name="LeaveButton" type="Button" parent="PausePanel/VBox"]
+unique_name_in_owner = true
+text = "Leave Match"
+
+[node name="TradePanel" type="Panel" parent="."]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -310.0
+offset_top = -230.0
+offset_right = 310.0
+offset_bottom = 230.0
+
+[node name="VBox" type="VBoxContainer" parent="TradePanel"]
+offset_left = 14.0
+offset_top = 10.0
+offset_right = 606.0
+offset_bottom = 450.0
+theme_override_constants/separation = 6
+
+[node name="TradeTitle" type="Label" parent="TradePanel/VBox"]
+unique_name_in_owner = true
+text = "TRADE"
+horizontal_alignment = 1
+
+[node name="CoinsLabel" type="Label" parent="TradePanel/VBox"]
+unique_name_in_owner = true
+text = "Coins: 0"
+horizontal_alignment = 1
+
+[node name="TradeHBox" type="HBoxContainer" parent="TradePanel/VBox"]
+size_flags_vertical = 3
+theme_override_constants/separation = 16
+
+[node name="SellCol" type="VBoxContainer" parent="TradePanel/VBox/TradeHBox"]
+size_flags_horizontal = 3
+
+[node name="SellHead" type="Label" parent="TradePanel/VBox/TradeHBox/SellCol"]
+text = "Your goods (sell)"
+
+[node name="SellScroll" type="ScrollContainer" parent="TradePanel/VBox/TradeHBox/SellCol"]
+size_flags_vertical = 3
+custom_minimum_size = Vector2(280, 300)
+
+[node name="SellList" type="VBoxContainer" parent="TradePanel/VBox/TradeHBox/SellCol/SellScroll"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+
+[node name="BuyCol" type="VBoxContainer" parent="TradePanel/VBox/TradeHBox"]
+size_flags_horizontal = 3
+
+[node name="BuyHead" type="Label" parent="TradePanel/VBox/TradeHBox/BuyCol"]
+text = "Quartermaster stock (buy)"
+
+[node name="BuyScroll" type="ScrollContainer" parent="TradePanel/VBox/TradeHBox/BuyCol"]
+size_flags_vertical = 3
+custom_minimum_size = Vector2(280, 300)
+
+[node name="BuyList" type="VBoxContainer" parent="TradePanel/VBox/TradeHBox/BuyCol/BuyScroll"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+
+[node name="TradeClose" type="Button" parent="TradePanel/VBox"]
+unique_name_in_owner = true
+text = "Close"
+
+[node name="WorldMap" type="Control" parent="."]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+script = ExtResource("7_wmap")

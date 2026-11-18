@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/campus/weapons/minigun_rotary.glb" id="1"]
+
+[node name="Minigun" type="Node3D"]
+
+[node name="RotaryBlaster" parent="." instance=ExtResource("1")]
+position = Vector3(0, 0.009, -0.105)
+scale = Vector3(0.89, 0.89, 0.89)

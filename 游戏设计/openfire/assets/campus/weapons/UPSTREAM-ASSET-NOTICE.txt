@@ -1,0 +1,10 @@
+Godot FPS Template by bukkbeek
+Repository: https://github.com/bukkbeek/GodotFPS-Template
+Commit: 11619794d644e7933f87caa6099f3acc1f085f5d
+Source: README.md, License section
+
+This project is under MIT license. You can fork, edit, use the repo as you want.
+But you are prohibited to resell any asset originating from this project including 3D assets, VFX, SFX (credits: [Pixabay](https://pixabay.com/)) and animations (Credits: [Mesh2Motion](https://mesh2motion.org/))
+
+The campus integration uses resources/player/fps_demo_arms.glb.
+The original LICENSE is preserved as LICENSE-bukkbeek.txt.

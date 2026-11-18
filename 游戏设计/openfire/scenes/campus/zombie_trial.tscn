@@ -1,0 +1,68 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/campus/campus_zombie_level.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/campus/campus_character_walker.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/campus/campus_doors.gd" id="3"]
+[ext_resource type="PackedScene" path="res://scenes/campus/debug_controls.tscn" id="4"]
+
+[sub_resource type="CapsuleShape3D" id="Capsule"]
+radius = 0.26
+height = 1.73
+
+[sub_resource type="Environment" id="Environment"]
+background_mode = 1
+background_color = Color(0.48, 0.60, 0.68, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.83, 0.9, 1, 1)
+ambient_light_energy = 0.67
+
+[node name="CampusZombieTrial" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-57, -30, 0)
+light_energy = 0.57
+shadow_enabled = true
+
+[node name="Spawn" type="Marker3D" parent="."]
+unique_name_in_owner = true
+position = Vector3(-11, 0.05, -5)
+rotation_degrees = Vector3(0, 150, 0)
+
+[node name="Walker" type="CharacterBody3D" parent="."]
+collision_layer = 2
+floor_snap_length = 0.35
+script = ExtResource("2")
+allow_position_reset = false
+
+[node name="Capsule" type="CollisionShape3D" parent="Walker"]
+position = Vector3(0, 0.865, 0)
+shape = SubResource("Capsule")
+
+[node name="Camera3D" type="Camera3D" parent="Walker"]
+position = Vector3(0, 1.59, 0)
+current = true
+near = 0.04
+
+[node name="FollowArm" type="SpringArm3D" parent="Walker/Camera3D"]
+rotation_degrees = Vector3(-13, 180, 0)
+spring_length = 2.7
+collision_mask = 1
+
+[node name="ThirdPerson" type="Camera3D" parent="Walker/Camera3D/FollowArm"]
+rotation_degrees = Vector3(-13, 180, 0)
+near = 0.04
+
+[node name="Interface" type="CanvasLayer" parent="."]
+
+[node name="DebugControls" parent="Interface" instance=ExtResource("4")]
+visible = false
+
+[node name="Doors" type="Node" parent="."]
+script = ExtResource("3")
+use_campus_data = false
+
+[node name="CharacterTrial" type="Node3D" parent="."]
+script = ExtResource("1")

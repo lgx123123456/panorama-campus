@@ -1,0 +1,735 @@
+[gd_scene load_steps=2 format=3 uid="uid://cmainmenu0001"]
+
+[ext_resource type="Script" path="res://scripts/ui/main_menu.gd" id="1_menu"]
+
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1_menu")
+
+[node name="BG" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.09, 0.1, 0.13, 1)
+
+[node name="VersionLabel" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -170.0
+offset_top = -28.0
+offset_right = -8.0
+offset_bottom = -4.0
+modulate = Color(1, 1, 1, 0.5)
+horizontal_alignment = 2
+text = "v0.0.0"
+
+[node name="SetupPanel" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Center" type="CenterContainer" parent="SetupPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Box" type="PanelContainer" parent="SetupPanel/Center"]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="SetupPanel/Center/Box"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+text = "OPENFIRE"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+text = "合作与对战射击游戏"
+horizontal_alignment = 1
+
+[node name="NameRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/NameRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "昵称"
+
+[node name="NameEdit" type="LineEdit" parent="SetupPanel/Center/Box/VBox/NameRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+text = "同学"
+
+[node name="ModeRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/ModeRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "模式"
+
+[node name="ModeOption" type="OptionButton" parent="SetupPanel/Center/Box/VBox/ModeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+
+[node name="CharacterRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/CharacterRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "角色"
+
+[node name="CharLabel" type="Label" parent="SetupPanel/Center/Box/VBox/CharacterRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(130, 0)
+text = "（未选择）"
+
+[node name="CharBtn" type="Button" parent="SetupPanel/Center/Box/VBox/CharacterRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "角色管理"
+
+[node name="ContinueBtn" type="Button" parent="SetupPanel/Center/Box/VBox/CharacterRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "继续游戏"
+
+[node name="MapRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/MapRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "地图"
+
+[node name="MapOption" type="OptionButton" parent="SetupPanel/Center/Box/VBox/MapRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+
+[node name="MissionRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/MissionRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "任务"
+
+[node name="MissionOption" type="OptionButton" parent="SetupPanel/Center/Box/VBox/MissionRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+
+[node name="FragRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/FragRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "击败目标"
+
+[node name="FragSpin" type="SpinBox" parent="SetupPanel/Center/Box/VBox/FragRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+min_value = 5.0
+max_value = 100.0
+step = 5.0
+value = 25.0
+
+[node name="MissionPointsRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/MissionPointsRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "任务积分"
+
+[node name="MissionPointsSpin" type="SpinBox" parent="SetupPanel/Center/Box/VBox/MissionPointsRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+min_value = 1.0
+max_value = 100.0
+step = 1.0
+value = 10.0
+
+[node name="TemplateRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/TemplateRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "地图模板"
+
+[node name="TemplateOption" type="OptionButton" parent="SetupPanel/Center/Box/VBox/TemplateRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+
+[node name="ThemeRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/ThemeRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "故事主题"
+
+[node name="ThemeEdit" type="LineEdit" parent="SetupPanel/Center/Box/VBox/ThemeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+placeholder_text = "例如：校园逃生"
+
+[node name="SeedRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/SeedRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "地形种子"
+
+[node name="SeedEdit" type="LineEdit" parent="SetupPanel/Center/Box/VBox/SeedRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+placeholder_text = "随机"
+
+[node name="MapSizeRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/MapSizeRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "地图大小"
+
+[node name="MapSizeOption" type="OptionButton" parent="SetupPanel/Center/Box/VBox/MapSizeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+
+[node name="BotsRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/BotsRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "电脑玩家"
+
+[node name="BotsSpin" type="SpinBox" parent="SetupPanel/Center/Box/VBox/BotsRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+max_value = 16.0
+value = 6.0
+
+[node name="SkillRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/SkillRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "电脑难度"
+
+[node name="SkillOption" type="OptionButton" parent="SetupPanel/Center/Box/VBox/SkillRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+
+[node name="IpRow" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="SetupPanel/Center/Box/VBox/IpRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "房主 IP 地址"
+
+[node name="IpEdit" type="LineEdit" parent="SetupPanel/Center/Box/VBox/IpRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(220, 0)
+placeholder_text = "127.0.0.1"
+
+[node name="Buttons" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="HostButton" type="Button" parent="SetupPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "创建房间"
+
+[node name="JoinButton" type="Button" parent="SetupPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "加入房间"
+
+[node name="SoloButton" type="Button" parent="SetupPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "单人对抗电脑"
+
+[node name="OptionsButton" type="Button" parent="SetupPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "设置"
+
+[node name="QuitButton" type="Button" parent="SetupPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "退出游戏"
+
+[node name="CampusRoutes" type="HBoxContainer" parent="SetupPanel/Center/Box/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="GatePlazaButton" type="Button" parent="SetupPanel/Center/Box/VBox/CampusRoutes"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "整校漫游 · 校门出发"
+
+[node name="CampusButton" type="Button" parent="SetupPanel/Center/Box/VBox/CampusRoutes"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "整校漫游 · 致远楼出发"
+
+[node name="ZombieTrialButton" type="Button" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "下课之前 · 校园逃生"
+
+[node name="CampusOnlineButton" type="Button" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "校园联机"
+
+[node name="CharacterTrialButton" type="Button" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "校园人物测试"
+
+[node name="StatusLabel" type="Label" parent="SetupPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+horizontal_alignment = 1
+text = ""
+
+[node name="LobbyPanel" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Center" type="CenterContainer" parent="LobbyPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Box" type="PanelContainer" parent="LobbyPanel/Center"]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="LobbyPanel/Center/Box"]
+layout_mode = 2
+theme_override_constants/separation = 10
+custom_minimum_size = Vector2(360, 0)
+
+[node name="Title" type="Label" parent="LobbyPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "联机大厅"
+horizontal_alignment = 1
+
+[node name="LobbySummary" type="Label" parent="LobbyPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+horizontal_alignment = 1
+text = ""
+
+[node name="PlayersTitle" type="Label" parent="LobbyPanel/Center/Box/VBox"]
+layout_mode = 2
+text = "房间成员"
+
+[node name="LobbyPlayers" type="VBoxContainer" parent="LobbyPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="LobbyButtons" type="HBoxContainer" parent="LobbyPanel/Center/Box/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="CopyRoomCodeButton" type="Button" parent="LobbyPanel/Center/Box/VBox/LobbyButtons"]
+unique_name_in_owner = true
+layout_mode = 2
+visible = false
+text = "复制邀请码"
+
+[node name="StartButton" type="Button" parent="LobbyPanel/Center/Box/VBox/LobbyButtons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "开始游戏"
+
+[node name="BackButton" type="Button" parent="LobbyPanel/Center/Box/VBox/LobbyButtons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "返回"
+
+[node name="OptionsPanel" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Center" type="CenterContainer" parent="OptionsPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Box" type="PanelContainer" parent="OptionsPanel/Center"]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="OptionsPanel/Center/Box"]
+layout_mode = 2
+theme_override_constants/separation = 12
+custom_minimum_size = Vector2(420, 0)
+
+[node name="Title" type="Label" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+text = "设置"
+horizontal_alignment = 1
+
+[node name="SensRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/SensRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 0)
+text = "鼠标灵敏度"
+
+[node name="SensSlider" type="HSlider" parent="OptionsPanel/Center/Box/VBox/SensRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(180, 0)
+min_value = 0.2
+max_value = 3.0
+step = 0.05
+value = 1.0
+
+[node name="SensValue" type="Label" parent="OptionsPanel/Center/Box/VBox/SensRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(50, 0)
+text = "1.0"
+
+[node name="VolRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/VolRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 0)
+text = "总音量"
+
+[node name="VolSlider" type="HSlider" parent="OptionsPanel/Center/Box/VBox/VolRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(180, 0)
+min_value = 0.0
+max_value = 1.0
+step = 0.05
+value = 0.8
+
+[node name="VolValue" type="Label" parent="OptionsPanel/Center/Box/VBox/VolRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(50, 0)
+text = "80%"
+
+[node name="FovRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/FovRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 0)
+text = "视野"
+
+[node name="FovSlider" type="HSlider" parent="OptionsPanel/Center/Box/VBox/FovRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(180, 0)
+min_value = 60.0
+max_value = 110.0
+step = 1.0
+value = 75.0
+
+[node name="FovValue" type="Label" parent="OptionsPanel/Center/Box/VBox/FovRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(50, 0)
+text = "75"
+
+[node name="QualityRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/QualityRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 0)
+text = "画质"
+
+[node name="QualityOption" type="OptionButton" parent="OptionsPanel/Center/Box/VBox/QualityRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(180, 0)
+
+[node name="InvKeyRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/InvKeyRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 0)
+text = "背包快捷键"
+
+[node name="InvKeyOption" type="OptionButton" parent="OptionsPanel/Center/Box/VBox/InvKeyRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(180, 0)
+
+[node name="LlmEmbedRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/LlmEmbedRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 0)
+text = "本地模型"
+
+[node name="LlmEmbedOption" type="OptionButton" parent="OptionsPanel/Center/Box/VBox/LlmEmbedRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(280, 0)
+
+[node name="LlmEmbedHint" type="Label" parent="OptionsPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+modulate = Color(1, 1, 1, 0.55)
+text = "首次游玩生存故事时下载模型。"
+
+[node name="LlmEndpointRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/LlmEndpointRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 0)
+text = "模型服务地址"
+
+[node name="LlmEndpointEdit" type="LineEdit" parent="OptionsPanel/Center/Box/VBox/LlmEndpointRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(240, 0)
+placeholder_text = "http://localhost:1234/v1/chat/completions"
+
+[node name="LlmModelRow" type="HBoxContainer" parent="OptionsPanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="OptionsPanel/Center/Box/VBox/LlmModelRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 0)
+text = "服务模型名称"
+
+[node name="LlmModelEdit" type="LineEdit" parent="OptionsPanel/Center/Box/VBox/LlmModelRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(240, 0)
+placeholder_text = "local-model"
+
+[node name="OptionsBackButton" type="Button" parent="OptionsPanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "返回"
+
+[node name="CharacterPanel" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Center" type="CenterContainer" parent="CharacterPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Box" type="PanelContainer" parent="CharacterPanel/Center"]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="CharacterPanel/Center/Box"]
+layout_mode = 2
+theme_override_constants/separation = 8
+custom_minimum_size = Vector2(440, 0)
+
+[node name="Title" type="Label" parent="CharacterPanel/Center/Box/VBox"]
+layout_mode = 2
+text = "角色管理"
+horizontal_alignment = 1
+
+[node name="Hint" type="Label" parent="CharacterPanel/Center/Box/VBox"]
+layout_mode = 2
+modulate = Color(1, 1, 1, 0.55)
+text = "每个角色分别保存装备和进度。"
+horizontal_alignment = 1
+
+[node name="CharScroll" type="ScrollContainer" parent="CharacterPanel/Center/Box/VBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 220)
+
+[node name="CharList" type="VBoxContainer" parent="CharacterPanel/Center/Box/VBox/CharScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="Buttons" type="HBoxContainer" parent="CharacterPanel/Center/Box/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="NewCharBtn" type="Button" parent="CharacterPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "创建角色"
+
+[node name="DeleteCharBtn" type="Button" parent="CharacterPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "删除所选角色"
+
+[node name="CharBackBtn" type="Button" parent="CharacterPanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "返回"
+
+[node name="CreatePanel" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Center" type="CenterContainer" parent="CreatePanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Box" type="PanelContainer" parent="CreatePanel/Center"]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="CreatePanel/Center/Box"]
+layout_mode = 2
+theme_override_constants/separation = 8
+custom_minimum_size = Vector2(460, 0)
+
+[node name="Title" type="Label" parent="CreatePanel/Center/Box/VBox"]
+layout_mode = 2
+text = "创建角色"
+horizontal_alignment = 1
+
+[node name="NameRow" type="HBoxContainer" parent="CreatePanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="CreatePanel/Center/Box/VBox/NameRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "昵称"
+
+[node name="CreateName" type="LineEdit" parent="CreatePanel/Center/Box/VBox/NameRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(260, 0)
+placeholder_text = "旅行者"
+
+[node name="ColorRow" type="HBoxContainer" parent="CreatePanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="CreatePanel/Center/Box/VBox/ColorRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "服装颜色"
+
+[node name="CreateColor" type="ColorPickerButton" parent="CreatePanel/Center/Box/VBox/ColorRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(120, 28)
+color = Color(0.4, 0.6, 0.9, 1)
+edit_alpha = false
+
+[node name="KitRow" type="HBoxContainer" parent="CreatePanel/Center/Box/VBox"]
+layout_mode = 2
+
+[node name="L" type="Label" parent="CreatePanel/Center/Box/VBox/KitRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+text = "初始装备"
+
+[node name="CreateKit" type="OptionButton" parent="CreatePanel/Center/Box/VBox/KitRow"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(260, 0)
+
+[node name="BackstoryLabel" type="Label" parent="CreatePanel/Center/Box/VBox"]
+layout_mode = 2
+text = "角色背景"
+
+[node name="CreateBackstory" type="TextEdit" parent="CreatePanel/Center/Box/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(0, 90)
+wrap_mode = 1
+
+[node name="Buttons" type="HBoxContainer" parent="CreatePanel/Center/Box/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="CreateConfirm" type="Button" parent="CreatePanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "创建"
+
+[node name="CreateCancel" type="Button" parent="CreatePanel/Center/Box/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "取消"
